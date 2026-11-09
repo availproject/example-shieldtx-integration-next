@@ -1,0 +1,2600 @@
+{
+  "openapi": "3.1.1",
+  "info": {
+    "title": "ShieldTX Partner API",
+    "version": "0.1.0",
+    "description": "HTTP contract for the ShieldTX server-managed wallet integration. Every operation requires a current Privy user access token. Partner requests use a JWT issued for the registered partner app. The saved account connection survives JWT expiry; expired JWTs are rejected. The hosted ShieldTX window uses a ShieldTX user JWT plus the verified linked account hint, except /connect, which verifies both user tokens. Partner app secrets and private authorization keys are not used by this API. Requests and responses use JSON unless a framework error states otherwise. Request bodies are limited to 100000 bytes. When an Origin header is present it must match the caller app's registered origin. Writes are asynchronous where documented; acceptance is not proof of a fill or returned funds. Request budgets are 6000 calls per partner per 60-second window, with per-account budgets of 3 combined connect/setup calls and 120 other calls per 60-second window. Retry HTTP 429 with backoff and preserve request IDs."
+  },
+  "servers": [
+    {
+      "url": "{coordinatorOrigin}/api/shieldtx",
+      "description": "Use the coordinator origin supplied for your integration.",
+      "variables": {
+        "coordinatorOrigin": {
+          "default": "https://coordinator.example.com",
+          "description": "Coordinator origin including scheme and optional port, without a trailing slash."
+        }
+      }
+    }
+  ],
+  "externalDocs": {
+    "description": "ShieldTX Partner Integration Guide",
+    "url": "https://app.notion.com/p/avail-project/ShieldTX-Partner-Integration-Guide-40fe67c666dd804ab451c78cef146d69?source=copy_link"
+  },
+  "tags": [
+    {
+      "name": "Configuration",
+      "description": "Authenticated integration configuration."
+    },
+    {
+      "name": "Account",
+      "description": "Connection state, wallet readiness and spendable balance."
+    },
+    {
+      "name": "Trading",
+      "description": "Signed funding admission, execution and return requests."
+    },
+    {
+      "name": "Hosted connection",
+      "description": "Account approval performed by the hosted ShieldTX window."
+    },
+    {
+      "name": "Hosted signing",
+      "description": "Low-level operations used by the hosted ShieldTX signing window."
+    }
+  ],
+  "security": [
+    {
+      "PartnerAccessToken": []
+    },
+    {
+      "ShieldTxAccessToken": [],
+      "ShieldTxAccountId": []
+    }
+  ],
+  "paths": {
+    "/config": {
+      "get": {
+        "operationId": "getConfig",
+        "summary": "Get integration configuration",
+        "tags": [
+          "Configuration"
+        ],
+        "description": "Returns configuration for the authenticated partner. Authentication is required. Use authAppOrigin as the trusted origin for the ShieldTX window and use the returned network and contract addresses together.",
+        "responses": {
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/Internal"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "200": {
+            "description": "Successful response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Config"
+                },
+                "example": {
+                  "appId": "partner-app-id",
+                  "isTestnet": true,
+                  "chainId": 421614,
+                  "vault": "0x4444444444444444444444444444444444444444",
+                  "usdc": "0x3333333333333333333333333333333333333333",
+                  "solverPublicKey": "0x1111111111111111111111111111111111111111111111111111111111111111",
+                  "solverAddress": "0x5555555555555555555555555555555555555555",
+                  "builder": null,
+                  "executionEnabled": true,
+                  "provisioning": "server-managed",
+                  "providerAppId": "shieldtx-app-id",
+                  "authAppOrigin": "https://connect.example.com",
+                  "warmTarget": 2,
+                  "walletLimit": 20
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/UnexpectedHttpError"
+          }
+        }
+      }
+    },
+    "/account": {
+      "get": {
+        "operationId": "getAccount",
+        "summary": "Get account and trade state",
+        "tags": [
+          "Account"
+        ],
+        "description": "Returns the authenticated account connection, setup readiness, up to 200 wallets and 100 recent trades. Before connection, connection and nsRoot are null and setupReady is false. Poll for asynchronous progress. Disconnect leaves account and accepted-trade status readable.",
+        "responses": {
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/Internal"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "200": {
+            "description": "Successful response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Account"
+                },
+                "example": {
+                  "wallets": [
+                    {
+                      "address": "0x2222222222222222222222222222222222222222",
+                      "status": "available",
+                      "phase": null,
+                      "relay": false,
+                      "nsPublicKey": null,
+                      "revocationState": "active"
+                    }
+                  ],
+                  "trades": [
+                    {
+                      "tradeId": "10000000-0000-4000-8000-000000000002",
+                      "clientOrderId": "10000000-0000-4000-8000-000000000001",
+                      "stage": "open",
+                      "terminalStatus": null,
+                      "pair": "ETH-USD",
+                      "direction": "long",
+                      "sizeUsd": "10",
+                      "leverage": 2,
+                      "entryPx": "3500",
+                      "avgClosePx": null,
+                      "feeTotal": "0.005",
+                      "realizedPnl": null,
+                      "failureReason": null,
+                      "createdAt": "2026-11-09T10:00:00Z",
+                      "updatedAt": "2026-11-09T10:00:10Z",
+                      "builder": null,
+                      "reshieldStage": null
+                    }
+                  ],
+                  "connection": {
+                    "accountId": "10000000-0000-4000-8000-000000000003",
+                    "providerAppId": "shieldtx-app-id",
+                    "active": true,
+                    "nsRoot": "0x1111111111111111111111111111111111111111111111111111111111111111"
+                  },
+                  "builder": null,
+                  "nsRoot": "0x1111111111111111111111111111111111111111111111111111111111111111",
+                  "setupReady": true,
+                  "walletPairsCreated": 2,
+                  "refillCapReached": false
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/UnexpectedHttpError"
+          }
+        }
+      }
+    },
+    "/balance": {
+      "get": {
+        "operationId": "getBalance",
+        "summary": "Get spendable shielded balance",
+        "tags": [
+          "Account"
+        ],
+        "description": "Returns a JSON string containing spendable USDC. Requires an active connection and initialized Nightshade read session. Polling needs only the partner user token and does not request signatures. HTTP 409 READ_SESSION_REQUIRED requires explicit renewal through the ShieldTX window. A missing session or read failure is never reported as zero. The read session is retained for at most 12 hours and can expire sooner at the sequencer.",
+        "responses": {
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/Internal"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "502": {
+            "$ref": "#/components/responses/BadGateway"
+          },
+          "200": {
+            "description": "Successful response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Balance"
+                },
+                "example": "2.500001"
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/UnexpectedHttpError"
+          }
+        }
+      }
+    },
+    "/connect": {
+      "post": {
+        "operationId": "connectAccount",
+        "summary": "Connect a ShieldTX account",
+        "tags": [
+          "Hosted connection"
+        ],
+        "description": "Called by the ShieldTX window after the user approves. Send the ShieldTX user JWT in Authorization and the partner user JWT, including its Bearer prefix, in X-Stratium-Authorization. Both tokens are independently verified. nsAddress must be the ShieldTX user's embedded Solana wallet. The saved partner user, ShieldTX identity and root cannot be replaced; reconnect must use the same identities and root. Returns HTTP 409 CONNECTION_CONFLICT for conflicting bindings. When Origin is present, it must be the registered ShieldTX origin.",
+        "responses": {
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/Internal"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "502": {
+            "$ref": "#/components/responses/BadGateway"
+          },
+          "413": {
+            "$ref": "#/components/responses/PayloadTooLarge"
+          },
+          "200": {
+            "description": "Successful response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Connection"
+                },
+                "example": {
+                  "accountId": "10000000-0000-4000-8000-000000000003",
+                  "providerAppId": "shieldtx-app-id",
+                  "active": true,
+                  "nsRoot": "0x1111111111111111111111111111111111111111111111111111111111111111"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/UnexpectedHttpError"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConnectRequest"
+              },
+              "example": {
+                "nsAddress": "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ShieldTxAccessToken": [],
+            "PartnerConnectionToken": []
+          }
+        ]
+      }
+    },
+    "/disconnect": {
+      "post": {
+        "operationId": "disconnectAccount",
+        "summary": "Revoke new ShieldTX activity",
+        "tags": [
+          "Account"
+        ],
+        "description": "Revokes new setup, wallet replenishment and trade admission, and clears the retained read session. Accepted trades continue and authenticated close/return operations remain available. Signing out does not revoke this connection. Accepts an empty body or {}.",
+        "responses": {
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/Internal"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "413": {
+            "$ref": "#/components/responses/PayloadTooLarge"
+          },
+          "200": {
+            "description": "Successful response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Connection"
+                },
+                "example": {
+                  "accountId": "10000000-0000-4000-8000-000000000003",
+                  "providerAppId": "shieldtx-app-id",
+                  "active": false,
+                  "nsRoot": "0x1111111111111111111111111111111111111111111111111111111111111111"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/UnexpectedHttpError"
+          }
+        },
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DisconnectRequest"
+              },
+              "example": {}
+            }
+          }
+        }
+      }
+    },
+    "/setup": {
+      "post": {
+        "operationId": "setupAccount",
+        "summary": "Prepare trading wallets",
+        "tags": [
+          "Account"
+        ],
+        "description": "Requires an active saved connection. Provisions fixed policies, recipient sets and empty wallet pairs. A pair contains a position EVM wallet, relay EVM wallet and relay Solana wallet. Prewarming moves no funds. Retry an interrupted request using the same requestId and walletCount. A completed batch returns replay true. A different count for an existing ID returns REQUEST_ID_CONFLICT. SETUP_RECONCILE_REQUIRED needs operator reconciliation; using a new ID does not resolve an unknown resource-creation outcome. Wait for available wallets with active revocation state before opening a trade. The server also maintains wallet inventory automatically. Raw policies, owners and recipient overrides are not accepted.",
+        "responses": {
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/Internal"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "502": {
+            "$ref": "#/components/responses/BadGateway"
+          },
+          "413": {
+            "$ref": "#/components/responses/PayloadTooLarge"
+          },
+          "200": {
+            "description": "Successful response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupResponse"
+                },
+                "example": {
+                  "ready": true,
+                  "replay": false
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/UnexpectedHttpError"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetupRequest"
+              },
+              "example": {
+                "nsAddress": "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi",
+                "requestId": "10000000-0000-4000-8000-000000000001",
+                "walletCount": 2
+              }
+            }
+          }
+        }
+      }
+    },
+    "/orders/{clientOrderId}": {
+      "get": {
+        "operationId": "getOrder",
+        "summary": "Find an order by request ID",
+        "tags": [
+          "Trading"
+        ],
+        "description": "Exact lookup scoped to the authenticated account, including orders older than the recent-trades snapshot. Returns order null when no matching order is visible. Use this endpoint to reconcile an uncertain open before signing another funding intent. reshieldStage is null in this lookup; poll GET /account for return progress.",
+        "responses": {
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/Internal"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "200": {
+            "description": "Successful response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderResponse"
+                },
+                "example": {
+                  "order": {
+                    "tradeId": "10000000-0000-4000-8000-000000000002",
+                    "clientOrderId": "10000000-0000-4000-8000-000000000001",
+                    "stage": "open",
+                    "terminalStatus": null,
+                    "pair": "ETH-USD",
+                    "direction": "long",
+                    "sizeUsd": "10",
+                    "leverage": 2,
+                    "entryPx": "3500",
+                    "avgClosePx": null,
+                    "feeTotal": "0.005",
+                    "realizedPnl": null,
+                    "failureReason": null,
+                    "createdAt": "2026-11-09T10:00:00Z",
+                    "updatedAt": "2026-11-09T10:00:10Z",
+                    "builder": null,
+                    "reshieldStage": null
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/UnexpectedHttpError"
+          }
+        },
+        "parameters": [
+          {
+            "name": "clientOrderId",
+            "in": "path",
+            "required": true,
+            "description": "The original open request idempotency key.",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "example": "10000000-0000-4000-8000-000000000001"
+          }
+        ]
+      }
+    },
+    "/open": {
+      "post": {
+        "operationId": "openTrade",
+        "summary": "Submit a signed funding request and open a trade",
+        "tags": [
+          "Trading"
+        ],
+        "description": "Requires executionEnabled, an active connection and completed wallet setup. The ShieldTX window obtains user approval and prepares the signed Nightshade CreateIntent request. The API verifies the linked root signature and binds the signed recipient, expected funding amount and solver sender to the request. Use the configured solver and USDC asset when constructing the intent. HTTP 202 acknowledges admission, not a Hyperliquid fill. Follow GET /account or GET /orders/{clientOrderId}. Retrying an identical request under the same clientOrderId returns the existing trade with replay true. Reusing an ID with different request contents returns a conflict. Preserve the identical signed request for retries; if it is lost, reconcile the exact order before building another intent. The example signature and read token are placeholders and must be replaced with current values.",
+        "responses": {
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/Internal"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "413": {
+            "$ref": "#/components/responses/PayloadTooLarge"
+          },
+          "202": {
+            "description": "Request accepted for asynchronous processing.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TradeAccepted"
+                },
+                "example": {
+                  "tradeId": "10000000-0000-4000-8000-000000000002",
+                  "replay": false
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/UnexpectedHttpError"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OpenRequest"
+              },
+              "example": {
+                "clientOrderId": "10000000-0000-4000-8000-000000000001",
+                "dexPositionAccount": "0x2222222222222222222222222222222222222222",
+                "fundingAmountMicroUsdc": "6107000",
+                "pair": "ETH-USD",
+                "direction": "long",
+                "leverage": 2,
+                "sizeUsd": "10",
+                "tpPx": "4200",
+                "slPx": "3000",
+                "nsOwnerAccount": "0x1111111111111111111111111111111111111111111111111111111111111111",
+                "sequencerReadAuthTokenHex": "0x6666666666666666666666666666666666666666666666666666666666666666",
+                "sequencerSignedIntent": {
+                  "input_commitments": [
+                    [
+                      17,
+                      17,
+                      17,
+                      17,
+                      17,
+                      17,
+                      17,
+                      17,
+                      17,
+                      17,
+                      17,
+                      17,
+                      17,
+                      17,
+                      17,
+                      17,
+                      17,
+                      17,
+                      17,
+                      17,
+                      17,
+                      17,
+                      17,
+                      17,
+                      17,
+                      17,
+                      17,
+                      17,
+                      17,
+                      17,
+                      17,
+                      17
+                    ]
+                  ],
+                  "payload": {
+                    "CreateIntent": {
+                      "solver": {
+                        "bytes": [
+                          17,
+                          17,
+                          17,
+                          17,
+                          17,
+                          17,
+                          17,
+                          17,
+                          17,
+                          17,
+                          17,
+                          17,
+                          17,
+                          17,
+                          17,
+                          17,
+                          17,
+                          17,
+                          17,
+                          17,
+                          17,
+                          17,
+                          17,
+                          17,
+                          17,
+                          17,
+                          17,
+                          17,
+                          17,
+                          17,
+                          17,
+                          17
+                        ]
+                      },
+                      "escrowed_amount": "0x5d2f78",
+                      "resolution": {
+                        "Attested": {
+                          "destination_chain": 999,
+                          "recipient_address": [
+                            34,
+                            34,
+                            34,
+                            34,
+                            34,
+                            34,
+                            34,
+                            34,
+                            34,
+                            34,
+                            34,
+                            34,
+                            34,
+                            34,
+                            34,
+                            34,
+                            34,
+                            34,
+                            34,
+                            34
+                          ],
+                          "expected_amount": "0x5d2f78",
+                          "expected_asset": [
+                            51,
+                            51,
+                            51,
+                            51,
+                            51,
+                            51,
+                            51,
+                            51,
+                            51,
+                            51,
+                            51,
+                            51,
+                            51,
+                            51,
+                            51,
+                            51,
+                            51,
+                            51,
+                            51,
+                            51
+                          ],
+                          "expected_sender": [
+                            85,
+                            85,
+                            85,
+                            85,
+                            85,
+                            85,
+                            85,
+                            85,
+                            85,
+                            85,
+                            85,
+                            85,
+                            85,
+                            85,
+                            85,
+                            85,
+                            85,
+                            85,
+                            85,
+                            85
+                          ]
+                        }
+                      },
+                      "timeout_blocks": 100
+                    }
+                  },
+                  "signature": {
+                    "bytes": [
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/close": {
+      "post": {
+        "operationId": "closeTrade",
+        "summary": "Close a full position or cancel an eligible pending trade",
+        "tags": [
+          "Trading"
+        ],
+        "description": "Closes the full position for a trade owned by the caller. An eligible funded trade that has not entered may instead be cancelled. Partial closes and client-supplied wallet, pair or size overrides are not accepted. nsOwnerAccount must equal the linked root. Reuse clientOrderId when retrying. HTTP 202 is acceptance; replay true indicates an already accepted close or cancellation. Close and return access remain available after disconnect for accepted trades.",
+        "responses": {
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/Internal"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "413": {
+            "$ref": "#/components/responses/PayloadTooLarge"
+          },
+          "202": {
+            "description": "Request accepted for asynchronous processing.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TradeAccepted"
+                },
+                "example": {
+                  "tradeId": "10000000-0000-4000-8000-000000000002",
+                  "replay": false
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/UnexpectedHttpError"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CloseRequest"
+              },
+              "example": {
+                "tradeId": "10000000-0000-4000-8000-000000000002",
+                "clientOrderId": "10000000-0000-4000-8000-000000000001",
+                "nsOwnerAccount": "0x1111111111111111111111111111111111111111111111111111111111111111"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/reshield": {
+      "post": {
+        "operationId": "reshieldTrade",
+        "summary": "Request or resume the return of trade proceeds",
+        "tags": [
+          "Trading"
+        ],
+        "description": "Queues a return request for a trade owned by the caller. HTTP 202 means enqueued only; eligibility and return processing continue asynchronously. Repeat requests use the same tradeId; execution resumes from recorded progress. Poll GET /account for reshieldStage and GET /balance for spendable returned funds. This endpoint remains available after disconnect for accepted trades.",
+        "responses": {
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/Internal"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "413": {
+            "$ref": "#/components/responses/PayloadTooLarge"
+          },
+          "202": {
+            "description": "Request accepted for asynchronous processing.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReshieldAccepted"
+                },
+                "example": {
+                  "tradeId": "10000000-0000-4000-8000-000000000002"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/UnexpectedHttpError"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReshieldRequest"
+              },
+              "example": {
+                "tradeId": "10000000-0000-4000-8000-000000000002"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/read": {
+      "post": {
+        "operationId": "readNightshade",
+        "summary": "Read the linked Nightshade account",
+        "tags": [
+          "Hosted signing"
+        ],
+        "description": "Low-level read transport used by the ShieldTX signing window. Send only method and params; the coordinator creates the JSON-RPC envelope. Supported methods are getLimits, getChallenge, getAuthToken and getUnspentNotes. Public keys must match the linked root. A successful getAuthToken result initializes the retained balance session for an active connection. The sequencer response is returned unchanged, so an HTTP 200 response can contain a JSON-RPC error. getUnspentNotes uses an item offset starting_index; advance by the returned page length until an empty page. Tokens, notes and signatures are sensitive; the partner balance endpoint exposes only the total.",
+        "responses": {
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/Internal"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "502": {
+            "$ref": "#/components/responses/BadGateway"
+          },
+          "413": {
+            "$ref": "#/components/responses/PayloadTooLarge"
+          },
+          "200": {
+            "description": "Successful response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReadResponse"
+                },
+                "example": {
+                  "jsonrpc": "2.0",
+                  "id": 1,
+                  "result": {
+                    "max_num_input_notes": 64,
+                    "max_num_output_notes": 64
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/UnexpectedHttpError"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReadRequest"
+              },
+              "example": {
+                "method": "getLimits",
+                "params": []
+              }
+            }
+          }
+        }
+      }
+    },
+    "/usage": {
+      "post": {
+        "operationId": "recordNativeUsage",
+        "summary": "Record a hosted signing diagnostic",
+        "tags": [
+          "Hosted signing"
+        ],
+        "description": "Called only by the ShieldTX window with ShieldTX authentication and X-ShieldTX-Account-Id. Records diagnostic signing events; reports do not establish authoritative billing. id identifies the event and operationId correlates the signing operation. This endpoint is not part of partner frontend onboarding.",
+        "responses": {
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/Internal"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "413": {
+            "$ref": "#/components/responses/PayloadTooLarge"
+          },
+          "200": {
+            "description": "Successful response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeUsageResponse"
+                },
+                "example": {
+                  "recorded": true
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/UnexpectedHttpError"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NativeUsageRequest"
+              },
+              "example": {
+                "id": "10000000-0000-4000-8000-000000000001",
+                "operationId": "10000000-0000-4000-8000-000000000002",
+                "operation": "open",
+                "outcome": "started",
+                "requestId": "10000000-0000-4000-8000-000000000003"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ShieldTxAccessToken": [],
+            "ShieldTxAccountId": []
+          }
+        ]
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "PartnerAccessToken": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "Privy JWT",
+        "description": "Current user access token issued by privy.io for the registered partner app. Signature, audience, issuer and timestamps are verified."
+      },
+      "ShieldTxAccessToken": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "Privy JWT",
+        "description": "Current user access token issued for the ShieldTX Privy app. Used by the hosted ShieldTX window."
+      },
+      "ShieldTxAccountId": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-ShieldTX-Account-Id",
+        "description": "Linked account UUID. Required with ShieldTX authentication outside /connect. It is a routing hint, not a credential; the verified ShieldTX owner must match the saved connection."
+      },
+      "PartnerConnectionToken": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-Stratium-Authorization",
+        "description": "The full string Bearer <partner-user-access-token>. Used together with a ShieldTX Authorization bearer token only for /connect."
+      }
+    },
+    "schemas": {
+      "NonzeroUuid": {
+        "type": "string",
+        "description": "UUID used for an account, trade or idempotency key. The nil UUID is not accepted for write request IDs.",
+        "format": "uuid",
+        "not": {
+          "const": "00000000-0000-0000-0000-000000000000"
+        }
+      },
+      "Hex32": {
+        "type": "string",
+        "description": "32 bytes encoded as 0x-prefixed hexadecimal.",
+        "pattern": "^0x[0-9a-fA-F]{64}$",
+        "examples": [
+          "0x1111111111111111111111111111111111111111111111111111111111111111"
+        ]
+      },
+      "EvmAddress": {
+        "type": "string",
+        "description": "20-byte EVM address.",
+        "pattern": "^0x[0-9a-fA-F]{40}$",
+        "examples": [
+          "0x2222222222222222222222222222222222222222"
+        ]
+      },
+      "SolanaAddress": {
+        "type": "string",
+        "description": "Base58-encoded embedded Solana public key. Must belong to the authenticated ShieldTX user.",
+        "pattern": "^[1-9A-HJ-NP-Za-km-z]{32,44}$"
+      },
+      "Decimal": {
+        "type": "string",
+        "description": "Base-10 decimal string; use strings to preserve precision.",
+        "pattern": "^-?(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?$",
+        "examples": [
+          "10.5"
+        ]
+      },
+      "PositiveDecimal": {
+        "$ref": "#/components/schemas/Decimal",
+        "description": "Strictly positive decimal string. Zero and negative values are rejected.",
+        "pattern": "^(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?$",
+        "not": {
+          "pattern": "^0(?:\\.0+)?$"
+        },
+        "examples": [
+          "5",
+          "4200.25"
+        ]
+      },
+      "MicroUsdc": {
+        "type": "string",
+        "description": "Positive integer string in atomic USDC units (1 USDC = 1000000).",
+        "pattern": "^[1-9][0-9]*$",
+        "examples": [
+          "6107000"
+        ]
+      },
+      "U256Quantity": {
+        "type": "string",
+        "description": "Unsigned 256-bit integer encoded as a hexadecimal quantity or decimal string.",
+        "pattern": "^(?:0x[0-9a-fA-F]+|[0-9]+)$",
+        "examples": [
+          "0x5d2f78"
+        ]
+      },
+      "Bytes20": {
+        "type": "array",
+        "items": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 255
+        },
+        "minItems": 20,
+        "maxItems": 20,
+        "description": "Exactly 20 bytes as JSON integers."
+      },
+      "Bytes32": {
+        "type": "array",
+        "items": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 255
+        },
+        "minItems": 32,
+        "maxItems": 32,
+        "description": "Exactly 32 bytes as JSON integers."
+      },
+      "Bytes64": {
+        "type": "array",
+        "items": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 255
+        },
+        "minItems": 64,
+        "maxItems": 64,
+        "description": "Exactly 64 bytes as JSON integers."
+      },
+      "PublicKey": {
+        "type": "object",
+        "properties": {
+          "bytes": {
+            "$ref": "#/components/schemas/Bytes32"
+          }
+        },
+        "required": [
+          "bytes"
+        ],
+        "additionalProperties": false
+      },
+      "Signature": {
+        "type": "object",
+        "properties": {
+          "bytes": {
+            "$ref": "#/components/schemas/Bytes64"
+          }
+        },
+        "required": [
+          "bytes"
+        ],
+        "additionalProperties": false
+      },
+      "BuilderFee": {
+        "type": "object",
+        "properties": {
+          "b": {
+            "$ref": "#/components/schemas/EvmAddress",
+            "description": "Configured Hyperliquid builder address."
+          },
+          "f": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "description": "Builder fee in tenths of a basis point; 10 means 1 basis point."
+          }
+        },
+        "required": [
+          "b",
+          "f"
+        ],
+        "additionalProperties": false
+      },
+      "Config": {
+        "type": "object",
+        "properties": {
+          "appId": {
+            "type": "string",
+            "description": "Registered partner Privy app ID."
+          },
+          "isTestnet": {
+            "type": "boolean"
+          },
+          "chainId": {
+            "type": "integer",
+            "enum": [
+              42161,
+              421614
+            ],
+            "description": "Arbitrum One or Arbitrum Sepolia."
+          },
+          "vault": {
+            "$ref": "#/components/schemas/EvmAddress"
+          },
+          "usdc": {
+            "$ref": "#/components/schemas/EvmAddress"
+          },
+          "solverPublicKey": {
+            "$ref": "#/components/schemas/Hex32"
+          },
+          "solverAddress": {
+            "$ref": "#/components/schemas/EvmAddress"
+          },
+          "builder": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BuilderFee"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "executionEnabled": {
+            "type": "boolean",
+            "description": "Whether new trade execution is enabled for this partner."
+          },
+          "provisioning": {
+            "type": "string",
+            "description": "This contract describes server-managed provisioning.",
+            "enum": [
+              "server-managed"
+            ]
+          },
+          "providerAppId": {
+            "type": "string",
+            "description": "ShieldTX Privy app ID."
+          },
+          "authAppOrigin": {
+            "type": "string",
+            "description": "Approved origin of the hosted ShieldTX login and signing window.",
+            "format": "uri"
+          },
+          "warmTarget": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 10,
+            "description": "Target inventory of ready wallet pairs."
+          },
+          "walletLimit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "description": "Lifetime wallet-pair creation cap for an account."
+          }
+        },
+        "required": [
+          "appId",
+          "isTestnet",
+          "chainId",
+          "vault",
+          "usdc",
+          "solverPublicKey",
+          "solverAddress",
+          "builder",
+          "executionEnabled",
+          "provisioning",
+          "providerAppId",
+          "authAppOrigin",
+          "warmTarget",
+          "walletLimit"
+        ],
+        "additionalProperties": false
+      },
+      "Connection": {
+        "type": "object",
+        "properties": {
+          "accountId": {
+            "$ref": "#/components/schemas/NonzeroUuid"
+          },
+          "providerAppId": {
+            "type": "string",
+            "description": "ShieldTX Privy app ID."
+          },
+          "active": {
+            "type": "boolean"
+          },
+          "nsRoot": {
+            "$ref": "#/components/schemas/Hex32",
+            "description": "Immutable linked Nightshade owner public key."
+          }
+        },
+        "required": [
+          "accountId",
+          "providerAppId",
+          "active",
+          "nsRoot"
+        ],
+        "additionalProperties": false
+      },
+      "Wallet": {
+        "type": "object",
+        "properties": {
+          "address": {
+            "$ref": "#/components/schemas/EvmAddress"
+          },
+          "status": {
+            "type": "string",
+            "description": "Wallet availability. Select only available wallets for a new trade.",
+            "examples": [
+              "available",
+              "reserved"
+            ]
+          },
+          "phase": {
+            "anyOf": [
+              {
+                "type": "string",
+                "description": "Wallet lifecycle phase."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "relay": {
+            "type": "boolean",
+            "description": "True for an EVM relay wallet; false for a position wallet."
+          },
+          "nsPublicKey": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Hex32"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "revocationState": {
+            "type": "string",
+            "description": "A usable wallet must have active revocation state.",
+            "examples": [
+              "active"
+            ]
+          }
+        },
+        "required": [
+          "address",
+          "status",
+          "phase",
+          "relay",
+          "nsPublicKey",
+          "revocationState"
+        ],
+        "additionalProperties": false
+      },
+      "Trade": {
+        "type": "object",
+        "properties": {
+          "tradeId": {
+            "$ref": "#/components/schemas/NonzeroUuid"
+          },
+          "clientOrderId": {
+            "$ref": "#/components/schemas/NonzeroUuid"
+          },
+          "stage": {
+            "type": "string",
+            "description": "Durable execution stage. A failed or successful terminalStatus is separate from this stage.",
+            "enum": [
+              "funding_prepared",
+              "funding_submitted",
+              "funded",
+              "leverage_prepared",
+              "leverage_set",
+              "entry_prepared",
+              "entry_submitted",
+              "open",
+              "close_prepared",
+              "close_submitted",
+              "closed"
+            ]
+          },
+          "terminalStatus": {
+            "anyOf": [
+              {
+                "type": "string",
+                "description": "Null while nonterminal.",
+                "examples": [
+                  "succeeded",
+                  "failed"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "pair": {
+            "type": "string",
+            "examples": [
+              "ETH-USD"
+            ]
+          },
+          "direction": {
+            "type": "string",
+            "enum": [
+              "long",
+              "short"
+            ]
+          },
+          "sizeUsd": {
+            "$ref": "#/components/schemas/Decimal"
+          },
+          "leverage": {
+            "type": "integer"
+          },
+          "entryPx": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Decimal"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "avgClosePx": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Decimal"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "feeTotal": {
+            "$ref": "#/components/schemas/Decimal"
+          },
+          "realizedPnl": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Decimal"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "failureReason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "builder": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BuilderFee"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reshieldStage": {
+            "anyOf": [
+              {
+                "type": "string",
+                "description": "Return progress. The exact-order lookup does not join return progress and returns null here; use GET /account for this field.",
+                "examples": [
+                  "withdrawal_accepted",
+                  "arrived",
+                  "shield_submitted",
+                  "shielded",
+                  "relay_forwarding_started",
+                  "relay_forwarded"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "tradeId",
+          "clientOrderId",
+          "stage",
+          "terminalStatus",
+          "pair",
+          "direction",
+          "sizeUsd",
+          "leverage",
+          "entryPx",
+          "avgClosePx",
+          "feeTotal",
+          "realizedPnl",
+          "failureReason",
+          "createdAt",
+          "updatedAt",
+          "builder",
+          "reshieldStage"
+        ],
+        "additionalProperties": false
+      },
+      "Account": {
+        "type": "object",
+        "properties": {
+          "wallets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Wallet"
+            },
+            "maxItems": 200,
+            "description": "Up to 200 most recently created position and EVM relay wallets."
+          },
+          "trades": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Trade"
+            },
+            "maxItems": 100,
+            "description": "Up to 100 most recent trades. Use GET /orders/{clientOrderId} for an exact lookup outside this window."
+          },
+          "connection": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Connection"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "builder": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BuilderFee"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "nsRoot": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Hex32"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "setupReady": {
+            "type": "boolean",
+            "description": "Provisioning readiness. Check active connection and individual wallet availability before starting a trade."
+          },
+          "walletPairsCreated": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "refillCapReached": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "wallets",
+          "trades",
+          "connection",
+          "builder",
+          "nsRoot",
+          "setupReady",
+          "walletPairsCreated",
+          "refillCapReached"
+        ],
+        "additionalProperties": false
+      },
+      "Balance": {
+        "type": "string",
+        "description": "Spendable shielded USDC, with up to six decimal places. Zero is a valid successful balance; read failures use an error response.",
+        "pattern": "^(?:0|[1-9][0-9]*)(?:\\.[0-9]{1,6})?$",
+        "examples": [
+          "0",
+          "2.500001"
+        ]
+      },
+      "ConnectRequest": {
+        "type": "object",
+        "properties": {
+          "nsAddress": {
+            "$ref": "#/components/schemas/SolanaAddress"
+          }
+        },
+        "required": [
+          "nsAddress"
+        ],
+        "additionalProperties": false
+      },
+      "DisconnectRequest": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "SetupRequest": {
+        "type": "object",
+        "properties": {
+          "nsAddress": {
+            "$ref": "#/components/schemas/SolanaAddress",
+            "description": "Base58 form of the already-linked ShieldTX Nightshade root."
+          },
+          "requestId": {
+            "$ref": "#/components/schemas/NonzeroUuid",
+            "description": "Stable request ID. Retry the same ID and wallet count after a temporary failure."
+          },
+          "walletCount": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 3,
+            "description": "Number of new wallet pairs. Each pair has a position EVM wallet, relay EVM wallet and relay Solana wallet."
+          }
+        },
+        "required": [
+          "nsAddress",
+          "requestId",
+          "walletCount"
+        ],
+        "additionalProperties": false
+      },
+      "SetupResponse": {
+        "type": "object",
+        "properties": {
+          "ready": {
+            "type": "boolean",
+            "const": true
+          },
+          "replay": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "ready",
+          "replay"
+        ],
+        "additionalProperties": false
+      },
+      "OrderResponse": {
+        "type": "object",
+        "properties": {
+          "order": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Trade"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "order"
+        ],
+        "additionalProperties": false
+      },
+      "AttestedResolution": {
+        "type": "object",
+        "properties": {
+          "Attested": {
+            "type": "object",
+            "properties": {
+              "destination_chain": {
+                "type": "integer",
+                "const": 999,
+                "description": "Hyperliquid destination chain ID."
+              },
+              "recipient_address": {
+                "$ref": "#/components/schemas/Bytes20",
+                "description": "Must match dexPositionAccount."
+              },
+              "expected_amount": {
+                "$ref": "#/components/schemas/U256Quantity",
+                "description": "Must equal the funding amount."
+              },
+              "expected_asset": {
+                "$ref": "#/components/schemas/Bytes20",
+                "description": "Configured USDC asset."
+              },
+              "expected_sender": {
+                "$ref": "#/components/schemas/Bytes20",
+                "description": "Configured solver sender address."
+              }
+            },
+            "required": [
+              "destination_chain",
+              "recipient_address",
+              "expected_amount",
+              "expected_asset",
+              "expected_sender"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "Attested"
+        ],
+        "additionalProperties": false
+      },
+      "CreateIntent": {
+        "type": "object",
+        "properties": {
+          "solver": {
+            "$ref": "#/components/schemas/PublicKey",
+            "description": "Configured solver public key."
+          },
+          "escrowed_amount": {
+            "$ref": "#/components/schemas/U256Quantity",
+            "description": "Must equal fundingAmountMicroUsdc."
+          },
+          "resolution": {
+            "$ref": "#/components/schemas/AttestedResolution"
+          },
+          "timeout_blocks": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 18446744073709551615,
+            "description": "Intent timeout measured in L1 blocks."
+          }
+        },
+        "required": [
+          "solver",
+          "escrowed_amount",
+          "resolution",
+          "timeout_blocks"
+        ],
+        "additionalProperties": false
+      },
+      "SignedFundingIntent": {
+        "type": "object",
+        "properties": {
+          "input_commitments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Bytes32"
+            },
+            "minItems": 1,
+            "description": "Commitments of the funding notes. The configured sequencer input-note limit applies."
+          },
+          "payload": {
+            "type": "object",
+            "properties": {
+              "CreateIntent": {
+                "$ref": "#/components/schemas/CreateIntent"
+              }
+            },
+            "required": [
+              "CreateIntent"
+            ],
+            "additionalProperties": false
+          },
+          "signature": {
+            "$ref": "#/components/schemas/Signature",
+            "description": "Ed25519 signature by nsOwnerAccount over the canonical Nightshade intent hash. JSON examples contain placeholder bytes, not executable signatures."
+          }
+        },
+        "required": [
+          "input_commitments",
+          "payload",
+          "signature"
+        ],
+        "additionalProperties": false
+      },
+      "OpenRequest": {
+        "type": "object",
+        "properties": {
+          "clientOrderId": {
+            "$ref": "#/components/schemas/NonzeroUuid",
+            "description": "Stable idempotency key scoped to the authenticated partner user."
+          },
+          "dexPositionAccount": {
+            "$ref": "#/components/schemas/EvmAddress",
+            "description": "Available position wallet selected from this account. The signed intent must fund this exact wallet."
+          },
+          "fundingAmountMicroUsdc": {
+            "$ref": "#/components/schemas/MicroUsdc"
+          },
+          "pair": {
+            "type": "string",
+            "description": "Market symbol. Availability is checked during execution.",
+            "pattern": "^[A-Za-z0-9]+-USD$",
+            "examples": [
+              "ETH-USD"
+            ]
+          },
+          "direction": {
+            "type": "string",
+            "enum": [
+              "long",
+              "short"
+            ]
+          },
+          "leverage": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2147483647,
+            "description": "Positive integer; supported leverage depends on the Hyperliquid market."
+          },
+          "sizeUsd": {
+            "$ref": "#/components/schemas/PositiveDecimal",
+            "description": "Position notional in USD, not margin. Must be covered by the signed funding amount and leverage."
+          },
+          "tpPx": {
+            "$ref": "#/components/schemas/PositiveDecimal"
+          },
+          "slPx": {
+            "$ref": "#/components/schemas/PositiveDecimal"
+          },
+          "nsOwnerAccount": {
+            "$ref": "#/components/schemas/Hex32",
+            "description": "Must equal the immutable linked Nightshade root."
+          },
+          "sequencerReadAuthTokenHex": {
+            "$ref": "#/components/schemas/Hex32",
+            "description": "Current sequencer read token for this root. Request-scoped sensitive value."
+          },
+          "sequencerSignedIntent": {
+            "$ref": "#/components/schemas/SignedFundingIntent"
+          }
+        },
+        "required": [
+          "clientOrderId",
+          "dexPositionAccount",
+          "fundingAmountMicroUsdc",
+          "pair",
+          "direction",
+          "leverage",
+          "sizeUsd",
+          "tpPx",
+          "slPx",
+          "nsOwnerAccount",
+          "sequencerReadAuthTokenHex",
+          "sequencerSignedIntent"
+        ],
+        "additionalProperties": false
+      },
+      "CloseRequest": {
+        "type": "object",
+        "properties": {
+          "tradeId": {
+            "$ref": "#/components/schemas/NonzeroUuid"
+          },
+          "clientOrderId": {
+            "$ref": "#/components/schemas/NonzeroUuid",
+            "description": "Stable close request ID. Reuse for retries."
+          },
+          "nsOwnerAccount": {
+            "$ref": "#/components/schemas/Hex32",
+            "description": "Return owner; must match the linked Nightshade root."
+          }
+        },
+        "required": [
+          "tradeId",
+          "clientOrderId",
+          "nsOwnerAccount"
+        ],
+        "additionalProperties": false
+      },
+      "ReshieldRequest": {
+        "type": "object",
+        "properties": {
+          "tradeId": {
+            "$ref": "#/components/schemas/NonzeroUuid"
+          }
+        },
+        "required": [
+          "tradeId"
+        ],
+        "additionalProperties": false
+      },
+      "TradeAccepted": {
+        "type": "object",
+        "properties": {
+          "tradeId": {
+            "$ref": "#/components/schemas/NonzeroUuid"
+          },
+          "replay": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "tradeId",
+          "replay"
+        ],
+        "additionalProperties": false
+      },
+      "ReshieldAccepted": {
+        "type": "object",
+        "properties": {
+          "tradeId": {
+            "$ref": "#/components/schemas/NonzeroUuid"
+          }
+        },
+        "required": [
+          "tradeId"
+        ],
+        "additionalProperties": false
+      },
+      "NativeUsageRequest": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/NonzeroUuid",
+            "description": "Stable event ID."
+          },
+          "operationId": {
+            "$ref": "#/components/schemas/NonzeroUuid",
+            "description": "Correlation ID for the signing operation."
+          },
+          "operation": {
+            "type": "string",
+            "enum": [
+              "balance",
+              "open"
+            ]
+          },
+          "outcome": {
+            "type": "string",
+            "enum": [
+              "started",
+              "accepted",
+              "rejected"
+            ]
+          },
+          "requestId": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NonzeroUuid"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "operationId",
+          "operation",
+          "outcome"
+        ],
+        "additionalProperties": false
+      },
+      "NativeUsageResponse": {
+        "type": "object",
+        "properties": {
+          "recorded": {
+            "type": "boolean",
+            "const": true
+          }
+        },
+        "required": [
+          "recorded"
+        ],
+        "additionalProperties": false
+      },
+      "Error": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string",
+                "description": "Machine-readable error code. Handle codes rather than matching message text."
+              },
+              "message": {
+                "type": "string",
+                "description": "Human-readable description; not a stable identifier."
+              },
+              "retryable": {
+                "type": "boolean",
+                "description": "A retry may succeed. This does not prove that a timed-out operation had no effect. Preserve request IDs and reconcile uncertain writes."
+              }
+            },
+            "required": [
+              "code",
+              "message",
+              "retryable"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "additionalProperties": false
+      },
+      "GetLimitsRequest": {
+        "type": "object",
+        "properties": {
+          "method": {
+            "type": "string",
+            "const": "getLimits"
+          },
+          "params": {
+            "type": "array",
+            "items": {},
+            "maxItems": 0
+          }
+        },
+        "required": [
+          "method",
+          "params"
+        ],
+        "additionalProperties": false
+      },
+      "GetChallengeRequest": {
+        "type": "object",
+        "properties": {
+          "method": {
+            "type": "string",
+            "const": "getChallenge"
+          },
+          "params": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "public_key": {
+                  "$ref": "#/components/schemas/PublicKey"
+                }
+              },
+              "required": [
+                "public_key"
+              ],
+              "additionalProperties": false
+            },
+            "minItems": 1,
+            "maxItems": 1
+          }
+        },
+        "required": [
+          "method",
+          "params"
+        ],
+        "additionalProperties": false
+      },
+      "GetAuthTokenRequest": {
+        "type": "object",
+        "properties": {
+          "method": {
+            "type": "string",
+            "const": "getAuthToken"
+          },
+          "params": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "public_key": {
+                  "$ref": "#/components/schemas/PublicKey"
+                },
+                "signature": {
+                  "$ref": "#/components/schemas/Signature"
+                }
+              },
+              "required": [
+                "public_key",
+                "signature"
+              ],
+              "additionalProperties": false
+            },
+            "minItems": 1,
+            "maxItems": 1
+          }
+        },
+        "required": [
+          "method",
+          "params"
+        ],
+        "additionalProperties": false
+      },
+      "GetUnspentNotesRequest": {
+        "type": "object",
+        "properties": {
+          "method": {
+            "type": "string",
+            "const": "getUnspentNotes"
+          },
+          "params": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "public_key": {
+                  "$ref": "#/components/schemas/PublicKey"
+                },
+                "auth_token": {
+                  "$ref": "#/components/schemas/Bytes32"
+                },
+                "starting_index": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 100000
+                }
+              },
+              "required": [
+                "public_key",
+                "auth_token",
+                "starting_index"
+              ],
+              "additionalProperties": false
+            },
+            "minItems": 1,
+            "maxItems": 1
+          }
+        },
+        "required": [
+          "method",
+          "params"
+        ],
+        "additionalProperties": false
+      },
+      "ReadRequest": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/GetLimitsRequest"
+          },
+          {
+            "$ref": "#/components/schemas/GetChallengeRequest"
+          },
+          {
+            "$ref": "#/components/schemas/GetAuthTokenRequest"
+          },
+          {
+            "$ref": "#/components/schemas/GetUnspentNotesRequest"
+          }
+        ],
+        "discriminator": {
+          "propertyName": "method",
+          "mapping": {
+            "getLimits": "#/components/schemas/GetLimitsRequest",
+            "getChallenge": "#/components/schemas/GetChallengeRequest",
+            "getAuthToken": "#/components/schemas/GetAuthTokenRequest",
+            "getUnspentNotes": "#/components/schemas/GetUnspentNotesRequest"
+          }
+        }
+      },
+      "SequencerLimits": {
+        "type": "object",
+        "properties": {
+          "max_num_input_notes": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "max_num_output_notes": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "required": [
+          "max_num_input_notes",
+          "max_num_output_notes"
+        ],
+        "additionalProperties": false
+      },
+      "Note": {
+        "type": "object",
+        "properties": {
+          "owner": {
+            "type": "object",
+            "properties": {
+              "Key": {
+                "$ref": "#/components/schemas/PublicKey"
+              }
+            },
+            "required": [
+              "Key"
+            ],
+            "additionalProperties": false
+          },
+          "amount": {
+            "$ref": "#/components/schemas/U256Quantity"
+          },
+          "asset": {
+            "$ref": "#/components/schemas/Bytes20"
+          },
+          "nonce": {
+            "$ref": "#/components/schemas/Bytes32"
+          },
+          "condition_data": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 255
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "owner",
+          "amount",
+          "asset",
+          "nonce",
+          "condition_data"
+        ],
+        "additionalProperties": false
+      },
+      "ReadResponse": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "jsonrpc": {
+                "type": "string",
+                "const": "2.0"
+              },
+              "id": {
+                "type": "integer",
+                "const": 1
+              },
+              "result": {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/SequencerLimits"
+                  },
+                  {
+                    "$ref": "#/components/schemas/Bytes32"
+                  },
+                  {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/components/schemas/Note"
+                    }
+                  }
+                ]
+              }
+            },
+            "required": [
+              "jsonrpc",
+              "id",
+              "result"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "jsonrpc": {
+                "type": "string",
+                "const": "2.0"
+              },
+              "id": {
+                "type": "integer",
+                "const": 1
+              },
+              "error": {
+                "type": "object",
+                "properties": {
+                  "code": {
+                    "type": "integer"
+                  },
+                  "message": {
+                    "type": "string"
+                  },
+                  "data": {}
+                },
+                "required": [
+                  "code",
+                  "message"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "jsonrpc",
+              "id",
+              "error"
+            ],
+            "additionalProperties": false
+          }
+        ],
+        "description": "The sequencer JSON-RPC response, including JSON-RPC errors under HTTP 200. A getLimits result is SequencerLimits; getChallenge and getAuthToken return Bytes32; getUnspentNotes returns Note[]."
+      }
+    },
+    "responses": {
+      "BadRequest": {
+        "description": "Invalid fields, root or signed funding request. Malformed path parameters may use a framework plain-text error.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            },
+            "example": {
+              "error": {
+                "code": "INVALID_REQUEST",
+                "message": "request body is invalid",
+                "retryable": false
+              }
+            }
+          },
+          "text/plain": {
+            "schema": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "Unauthorized": {
+        "description": "Missing, invalid or expired Privy token. Obtain a current token before retrying.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            },
+            "example": {
+              "error": {
+                "code": "UNAUTHORIZED",
+                "message": "invalid or expired Privy access token",
+                "retryable": false
+              }
+            }
+          }
+        }
+      },
+      "Forbidden": {
+        "description": "Origin, wallet ownership, linked root or active connection check failed.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            },
+            "example": {
+              "error": {
+                "code": "ROOT_MISMATCH",
+                "message": "funding owner must match your registered NS root",
+                "retryable": false
+              }
+            }
+          }
+        }
+      },
+      "NotFound": {
+        "description": "Trade does not exist or belongs to another account.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            },
+            "example": {
+              "error": {
+                "code": "TRADE_NOT_FOUND",
+                "message": "trade not found",
+                "retryable": false
+              }
+            }
+          }
+        }
+      },
+      "Conflict": {
+        "description": "Account, setup, read session or trade state requires reconciliation or another action.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            },
+            "example": {
+              "error": {
+                "code": "READ_SESSION_REQUIRED",
+                "message": "Refresh your ShieldTX read session to resume balance updates",
+                "retryable": false
+              }
+            }
+          }
+        }
+      },
+      "RateLimited": {
+        "description": "Request budget exceeded. Back off and retry the same request ID.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            },
+            "example": {
+              "error": {
+                "code": "RATE_LIMITED",
+                "message": "rate limit reached",
+                "retryable": true
+              }
+            }
+          }
+        }
+      },
+      "Internal": {
+        "description": "Unexpected server failure.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            },
+            "example": {
+              "error": {
+                "code": "INTERNAL",
+                "message": "internal server error",
+                "retryable": true
+              }
+            }
+          }
+        }
+      },
+      "BadGateway": {
+        "description": "Privy or the Nightshade sequencer is unavailable.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            },
+            "example": {
+              "error": {
+                "code": "READ_UNAVAILABLE",
+                "message": "sequencer unavailable",
+                "retryable": true
+              }
+            }
+          }
+        }
+      },
+      "Unavailable": {
+        "description": "Execution is disabled, capacity is busy or a required service is unavailable.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            },
+            "example": {
+              "error": {
+                "code": "EXECUTION_DISABLED",
+                "message": "opens disabled until test funding infrastructure is ready",
+                "retryable": true
+              }
+            }
+          }
+        }
+      },
+      "PayloadTooLarge": {
+        "description": "Request exceeds the 100000-byte HTTP body limit. Framework-generated errors may use plain text instead of the JSON error envelope.",
+        "content": {
+          "text/plain": {
+            "schema": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "UnexpectedHttpError": {
+        "description": "Other HTTP or framework failures may use a different response body, including plain text.",
+        "content": {
+          "text/plain": {
+            "schema": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    }
+  }
+}

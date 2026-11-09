@@ -5,6 +5,7 @@
 .data/
 node_modules/
 .next/
+.next-owned/
 out/
 *.tsbuildinfo
 .vercel/

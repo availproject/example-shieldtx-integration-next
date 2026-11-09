@@ -1,40 +1,46 @@
-# ShieldTX integration example — Next.js
+# ShieldTX partner integration example
 
-Add ShieldTX to an existing Privy app: prewarm empty wallets, deposit USDC, open, close and reshield. The browser calls Avail's coordinator directly. Your Next.js server manages the approved policies during onboarding.
+A Next.js example that adds ShieldTX to an existing Privy login and trading UI.
 
-- [Integration guide](INTEGRATION.md): Privy setup, policy JSON, credential handoff, flows and deployed testing.
-- [API reference](API.md): coordinator routes and helper inputs.
-- [Frontend helpers](src/client.ts), [Privy hook](src/useShieldTx.ts), [schemas](src/schema.ts) and [signing/encoding](src/crypto.ts).
-- [Partner onboarding route](app/api/profile/route.ts), [provisioning](server/provision.ts), [durable storage](server/store.ts) and [policy JSON](server/policy-template.json).
+- **[Integration guide](https://app.notion.com/p/avail-project/ShieldTX-Partner-Integration-Guide-40fe67c666dd804ab451c78cef146d69?source=copy_link)** — setup, user flows and session handling.
+- **[OpenAPI specification](openapi.json)** — coordinator endpoints, authentication, schemas and errors.
+- **[Frontend example](src/App.tsx)** — connection, balance polling, deposits and trading wired into a UI.
 
 ## Run locally
 
-Use Node.js 20.9+ and Bun. Avail must register your Privy app and frontend origin before coordinator calls can succeed.
+Use Bun and Node.js 20.9+. Register your public Privy app ID, verification public
+key and frontend origin with ShieldTX, and obtain the coordinator URL.
 
 ```sh
 bun install --frozen-lockfile --ignore-scripts
 cp .env.example .env.local
-# Fill .env.local using the integration guide.
-bun test
-bun run build
-bun run dev
 ```
 
-Open http://127.0.0.1:3000. Set only public app ID/API URL under `NEXT_PUBLIC_*`; keep app secrets and authorization private keys on servers. Next.js uses `.env.local` locally. Development mode saves private onboarding checkpoints under `.data/profiles/` with conditional writes; no Blob token is needed locally. In deployment, configure the partner server's secrets and private Vercel Blob store, or replace `ProfileStore` with your database adapter.
-
-The default environment template describes an empty testnet setup. Current canary uses mainnet and has execution disabled; its deployed API path currently returns 404. See the guide before connecting to it. This repository has not replaced the existing canary frontend deployment.
-
-## Optional operator sandbox
-
-These scripts create real Privy resources in a dedicated test app. They reject mainnet and never submit trades or fund wallets. Keep generated files local.
+Set `NEXT_PUBLIC_PRIVY_APP_ID` to your existing app ID and
+`NEXT_PUBLIC_SHIELDTX_API_URL` to the supplied coordinator URL, including
+`/api/shieldtx`. Both values are public frontend configuration.
 
 ```sh
-cp .env.coordinator.example .env
-# Fill matching test Privy app credentials, network and vault settings.
-bun run sandbox:bootstrap
-bun run sandbox:profile <privy-did> <embedded-solana-address>
+bun run dev --port 3000
 ```
 
-Bootstrap keeps the policy-admin private key in `.env.operator`; `.env` contains coordinator runtime settings. Provisioning saves checkpoints under `.data/`. The Next.js onboarding server needs the admin key in its server environment; never transfer it to Avail's coordinator. Copy only the required partner settings to `.env.local`, and use identical builder/network settings on both servers.
+Open `http://localhost:3000` and use that exact origin in your app registration.
+If your Privy app restricts allowed origins, add it under **Configuration → App
+settings → Domains**. The hook discovers the hosted ShieldTX login origin through
+`/config`.
 
-The coordinator and protocol services are operated by Avail and are not bundled here. There are no monorepo-relative Cargo commands. API/provider tests use mocks; a funded end-to-end trade is not verified by those tests.
+## Frontend files
+
+| File | What to use it for |
+| --- | --- |
+| [App.tsx](src/App.tsx) | Working button, form, polling and error-handling examples |
+| [useShieldTx.ts](src/useShieldTx.ts) | `connect()`, `disconnect()`, `renewReadSession()` and the authenticated client |
+| [client.ts](src/client.ts) | Account, balance, deposit, estimate, open, close and reshield calls |
+| [connection.ts](src/connection.ts) | Communication with the hosted ShieldTX window |
+| [schema.ts](src/schema.ts), [crypto.ts](src/crypto.ts) | Payload validation and canonical transaction encoding |
+
+Use `useShieldTx()` inside your existing `PrivyProvider`. Call connection,
+session renewal and trade opening from user actions; the example polls balances
+and account state automatically. Initial wallet setup happens during connection.
+
+Run `bun test` and `bun run typecheck` to check the example.

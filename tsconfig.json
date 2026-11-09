@@ -38,7 +38,9 @@
     "server",
     "tests",
     ".next/types/**/*.ts",
-    ".next/dev/types/**/*.ts"
+    ".next/dev/types/**/*.ts",
+    ".next-owned/types/**/*.ts",
+    ".next-owned/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules"

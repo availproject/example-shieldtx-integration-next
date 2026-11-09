@@ -9,7 +9,6 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { bootstrapSandbox, readEnv, saveEnv } from "../scripts/bootstrap-privy";
-import { provisionProfile } from "../scripts/provision-profile";
 const nsAddress = "CZ8YUVdk7znjrUmnb5n7kgySk9yRAsQDYmyCxzfSky9t";
 function folder(testnet = true) {
   const dir = mkdtempSync(join(tmpdir(), "stratium-bootstrap-test-"));
@@ -109,42 +108,6 @@ test("sandbox bootstrap separates keys, limits creations and reuses all resource
   const ledger = readFileSync(join(dir, ".data/bootstrap.json"), "utf8");
   expect(ledger).not.toContain("not-a-real-secret");
   expect(ledger).not.toContain("PRIVATE KEY");
-});
-test("C operator creates an actor-bound profile once; foreign roots and unknown creates are fenced", async () => {
-  const dir = folder(),
-    h = harness();
-  await bootstrapSandbox(dir, h.fetcher);
-  const profile = await provisionProfile(
-    dir,
-    "did:privy:user",
-    nsAddress,
-    h.fetcher,
-  );
-  expect(Object.keys(profile).sort()).toEqual(
-    ["policyId", "positionSetId", "relaySetId"].sort(),
-  );
-  expect(h.writes()).toBe(9);
-  expect(
-    await provisionProfile(dir, "did:privy:user", nsAddress, h.fetcher),
-  ).toEqual(profile);
-  expect(h.writes()).toBe(9);
-  await expect(
-    provisionProfile(dir, "did:privy:other", nsAddress, h.fetcher),
-  ).rejects.toThrow("Root is not");
-  const lostDir = folder(),
-    lost = harness();
-  await bootstrapSandbox(lostDir, lost.fetcher);
-  const fetcher = async (url: string | URL | Request, init?: RequestInit) => {
-    if (init?.method === "POST") throw new Error("lost response");
-    return lost.fetcher(url, init);
-  };
-  await expect(
-    provisionProfile(lostDir, "did:privy:user", nsAddress, fetcher),
-  ).rejects.toThrow("lost response");
-  await expect(
-    provisionProfile(lostDir, "did:privy:user", nsAddress, lost.fetcher),
-  ).rejects.toThrow("Unknown creation outcome");
-  expect(lost.writes()).toBe(6);
 });
 test("unknown creation is fenced; retry cannot create duplicates", async () => {
   const dir = folder();

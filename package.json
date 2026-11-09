@@ -4,13 +4,12 @@
   "type": "module",
   "description": "Next.js example for integrating ShieldTX with a partner Privy app",
   "scripts": {
-    "dev": "next dev --webpack --hostname 127.0.0.1",
+    "dev": "next dev --webpack --hostname localhost",
     "build": "next build --webpack",
-    "start": "next start --hostname 127.0.0.1",
+    "start": "next start --hostname localhost",
     "typecheck": "tsc --noEmit",
     "test": "bun test",
-    "sandbox:bootstrap": "bun --env-file=.env scripts/bootstrap-privy.ts",
-    "sandbox:profile": "bun scripts/provision-profile.ts"
+    "sandbox:bootstrap": "bun --env-file=.env scripts/bootstrap-privy.ts"
   },
   "dependencies": {
     "@noble/curves": "2.4.0",
@@ -19,9 +18,7 @@
     "@solana-program/system": "^0.14.1",
     "@solana-program/token": "^0.16.1",
     "@solana/kit": "8.0.0",
-    "@vercel/blob": "2.4.0",
     "bs58": "6.0.0",
-    "jose": "6.2.13",
     "react": "19.3.1",
     "react-dom": "19.3.1",
     "uuid": "13.0.2",
