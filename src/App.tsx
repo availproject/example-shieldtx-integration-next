@@ -4,11 +4,19 @@ import { useEffect, useRef, useState } from "react";
 import { usePrivy, useWallets } from "@privy-io/react-auth";
 import { useShieldTx } from "./useShieldTx";
 import { ShieldTxApiError } from "./client";
-import type { Config, Order, Snapshot } from "./schema";
+import { formatUnits } from "viem";
+import type { Config, Order, Snapshot, Withdrawal } from "./schema";
 
 const short = (s: string) => s.slice(0, 7) + "…" + s.slice(-5);
 
-/** Working UI wiring for connection, automatic balances, deposits and trading. */
+const phaseLabel: Record<Withdrawal["phase"], string> = {
+  enqueued: "Queued for proving",
+  proved: "Proved · awaiting L1 batch",
+  claimable: "Ready to claim",
+  claimed: "Claimed",
+};
+
+/** Working UI wiring for connection, automatic balances, deposits, trading and withdrawals. */
 export function App() {
   const { ready, authenticated, login, logout, connectWallet, user } = usePrivy();
   const currentUser = useRef(user?.id);
@@ -20,6 +28,10 @@ export function App() {
     connect,
     disconnect,
     renewReadSession,
+    unshield,
+    authorizeWithdrawals,
+    withdrawalToken,
+    clearWithdrawalToken,
     canConnect,
     connected,
   } = useShieldTx();
@@ -34,6 +46,10 @@ export function App() {
   const [deposit, setDeposit] = useState("20");
   const [walletAddress, setWalletAddress] = useState("");
   const [estimate, setEstimate] = useState("—");
+  const [withdrawAmount, setWithdrawAmount] = useState("10");
+  const [withdrawRecipient, setWithdrawRecipient] = useState("");
+  const [withdrawals, setWithdrawals] = useState<Withdrawal[] | null>(null);
+  const [withdrawalsError, setWithdrawalsError] = useState("");
   const pending = useRef<Order | null>(null);
   const [order, setOrder] = useState<Omit<Order, "clientOrderId">>({
     pair: "ETH-USD",
@@ -127,6 +143,40 @@ export function App() {
     };
   }, [client, connected]);
 
+  // Withdrawal progress needs a read token from the ShieldTX page; polling never signs.
+  useEffect(() => {
+    setWithdrawals(null);
+    setWithdrawalsError("");
+    if (!client || !withdrawalToken) return;
+    let cancelled = false,
+      reading = false;
+    const poll = async () => {
+      if (reading) return;
+      reading = true;
+      try {
+        const list = await client.withdrawals(withdrawalToken);
+        if (!cancelled) {
+          setWithdrawals(list);
+          setWithdrawalsError("");
+        }
+      } catch (error) {
+        if (cancelled) return;
+        if (error instanceof ShieldTxApiError && error.code === "READ_TOKEN_REJECTED") {
+          clearWithdrawalToken();
+          setWithdrawalsError("Withdrawal access expired; allow it again to see progress");
+        } else setWithdrawalsError(error instanceof Error ? error.message : "Withdrawals unavailable");
+      } finally {
+        reading = false;
+      }
+    };
+    void poll();
+    const timer = setInterval(() => void poll(), 15000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [client, withdrawalToken]);
+
   // Update the funding estimate as the order form changes; this does not sign or submit.
   useEffect(() => {
     if (!client) return;
@@ -167,6 +217,7 @@ export function App() {
       (w) => !w.relay && w.status === "available" && w.revocationState === "active",
     ).length ?? 0;
   const ethereum = wallets.find((w) => w.address === walletAddress) ?? wallets[0];
+  const recipient = withdrawRecipient || ethereum?.address || "";
   return (
     <div className="shell">
       <header>
@@ -488,11 +539,116 @@ export function App() {
               </div>
             )}
           </section>
+          <section>
+            <div className="section-heading">
+              <h2>04 / Withdraw</h2>
+              <span>NS notes → proven batch → Arbitrum claim</span>
+            </div>
+            <div className="row">
+              <label>
+                USDC
+                <input
+                  value={withdrawAmount}
+                  onChange={(e) => setWithdrawAmount(e.target.value)}
+                  inputMode="decimal"
+                />
+              </label>
+              <label>
+                Arbitrum recipient
+                <input
+                  value={recipient}
+                  onChange={(e) => setWithdrawRecipient(e.target.value.trim())}
+                  placeholder="0x…"
+                  spellCheck={false}
+                />
+              </label>
+              <button
+                disabled={!client || !connected || !recipient || busy}
+                onClick={() =>
+                  void run(
+                    () => unshield(withdrawAmount, recipient),
+                    "Unshield queued. It becomes claimable after the next proven batch (up to ~2 hours).",
+                  )
+                }
+              >
+                Unshield to Arbitrum
+              </button>
+            </div>
+            {!withdrawalToken ? (
+              <div className="row">
+                <p className="muted small">
+                  {withdrawalsError || "Withdrawal progress needs one approval on the ShieldTX page."}
+                </p>
+                <button
+                  disabled={!client || !connected || busy}
+                  onClick={() => void run(authorizeWithdrawals, "Withdrawal history loaded")}
+                >
+                  Show withdrawals
+                </button>
+              </div>
+            ) : withdrawalsError ? (
+              <p className="muted small">{withdrawalsError}</p>
+            ) : !withdrawals ? (
+              <p className="muted">Loading withdrawals…</p>
+            ) : !withdrawals.length ? (
+              <p className="muted">No withdrawals yet.</p>
+            ) : (
+              <div className="table-scroll">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Withdrawal</th>
+                      <th>Status</th>
+                      <th>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {withdrawals.map((w) => (
+                      <tr key={w.id}>
+                        <td>
+                          {formatUnits(BigInt(w.amount), 6)} USDC
+                          <small>
+                            to {short(w.recipient)} · {short(w.id)}
+                          </small>
+                        </td>
+                        <td>
+                          {phaseLabel[w.phase]}
+                          <small>
+                            {w.batchNumber === null ? "not in a batch yet" : `batch ${w.batchNumber}`}
+                          </small>
+                        </td>
+                        <td>
+                          {w.phase === "claimable" ? (
+                            <button
+                              disabled={!ethereum || busy}
+                              onClick={() =>
+                                void run(async () => {
+                                  const tx = await client!.claim(w, ethereum!);
+                                  setWithdrawals((list) =>
+                                    list?.map((x) => (x.id === w.id ? { ...x, phase: "claimed" } : x)) ?? list,
+                                  );
+                                  return tx;
+                                }, "Claimed on Arbitrum; USDC sent to the recipient")
+                              }
+                            >
+                              Claim on Arbitrum
+                            </button>
+                          ) : (
+                            "—"
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
           <p className="notice" role="status" aria-live="polite">
             {rootError ||
               pollError ||
               message ||
-              "Sign in → connect ShieldTX → deposit → sign and trade. No private-key exports."}
+              "Sign in → connect ShieldTX → deposit → sign and trade → withdraw. No private-key exports."}
           </p>
         </main>
       </div>

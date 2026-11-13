@@ -19,12 +19,15 @@ import {
   noteSchema,
   orderSchema,
   positive,
+  proofSchema,
   snapshotSchema,
   setupSchema,
+  withdrawalSchema,
   type Config,
   type Order,
+  type Withdrawal,
 } from "./schema";
-import { hex, intentHash, noteCommitment, raw, type Intent } from "./crypto";
+import { hex, intentHash, noteCommitment, raw, withdrawalId, type Intent } from "./crypto";
 
 export type EthereumWallet = {
   address: string;
@@ -35,6 +38,8 @@ export type EthereumWallet = {
 };
 type Options = {
   baseUrl?: string;
+  /** Partner-agnostic withdrawal routes; defaults to `<baseUrl>` with `/shieldtx` → `/withdrawals`. */
+  withdrawalsUrl?: string;
   getAccessToken: () => Promise<string | null>;
   nsAddress: string;
   signBytes: (message: Uint8Array) => Promise<Uint8Array>;
@@ -65,6 +70,37 @@ const vaultAbi = [
       { name: "recipient", type: "bytes32" },
       { name: "feeAmount", type: "uint256" },
     ],
+  },
+  {
+    type: "function",
+    name: "unshield",
+    stateMutability: "nonpayable",
+    outputs: [],
+    inputs: [
+      {
+        name: "txn",
+        type: "tuple",
+        components: [
+          { name: "asset", type: "address" },
+          { name: "amount", type: "uint256" },
+          { name: "nullifiers", type: "bytes32[]" },
+          { name: "l1_recipient_addr", type: "address" },
+        ],
+      },
+      { name: "batchNumber", type: "uint64" },
+      { name: "leafIndexInBatch", type: "uint64" },
+      { name: "merkleInclusionProof", type: "bytes32[]" },
+    ],
+  },
+  {
+    type: "function",
+    name: "processedUnshields",
+    stateMutability: "view",
+    inputs: [
+      { name: "batchNumber", type: "uint64" },
+      { name: "leaf", type: "bytes32" },
+    ],
+    outputs: [{ name: "", type: "bool" }],
   },
 ] as const;
 
@@ -98,6 +134,27 @@ export function createShieldTxClient(options: Options) {
         .safeParse(await response.json().catch(() => null));
       throw new ShieldTxApiError(
         error.success ? error.data.error.message : `ShieldTX HTTP ${response.status}`,
+        error.success ? error.data.error.code : undefined,
+      );
+    }
+    return response.json();
+  }
+  const withdrawalsBase = options.withdrawalsUrl ?? base.replace(/\/shieldtx$/, "/withdrawals");
+
+  // Open withdrawal routes take no partner token: the sequencer is the authority.
+  async function withdrawalsApi(path: string, body?: unknown): Promise<unknown> {
+    const response = await fetcher(withdrawalsBase + path, {
+      method: body === undefined ? "GET" : "POST",
+      headers: body === undefined ? undefined : { "content-type": "application/json" },
+      body: body === undefined ? undefined : JSON.stringify(body),
+      signal: AbortSignal.timeout(60_000),
+    });
+    if (!response.ok) {
+      const error = z
+        .object({ error: z.object({ message: z.string(), code: z.string().optional() }) })
+        .safeParse(await response.json().catch(() => null));
+      throw new ShieldTxApiError(
+        error.success ? error.data.error.message : `Withdrawal HTTP ${response.status}`,
         error.success ? error.data.error.code : undefined,
       );
     }
@@ -345,6 +402,94 @@ export function createShieldTxClient(options: Options) {
 
     /** Request or resume the return, then watch reshieldStage and the spendable balance. */
     reshield: (tradeId: string) => api("/reshield", { tradeId }),
+
+    /**
+     * List USDC withdrawals, newest first, using a read token from the ShieldTX page.
+     * READ_TOKEN_REJECTED means the token expired; ask the user to allow history access again.
+     */
+    async withdrawals(readToken: string): Promise<Withdrawal[]> {
+      const cfg = await config();
+      const result: Withdrawal[] = [];
+      for (let page = 0; page < 20; page++) {
+        const { withdrawals } = z
+          .object({ withdrawals: z.array(withdrawalSchema) })
+          .parse(
+            await withdrawalsApi("/history", {
+              publicKey: hex(root),
+              authToken: readToken,
+              startingIndex: result.length,
+            }),
+          );
+        if (!withdrawals.length)
+          return result
+            .filter((w) => w.asset.toLowerCase() === cfg.usdc.toLowerCase())
+            .reverse();
+        result.push(...withdrawals);
+      }
+      throw new Error("Withdrawal history limit reached");
+    },
+
+    /** Claim a claimable withdrawal on Arbitrum. Any wallet may pay gas; funds go to its recipient. */
+    async claim(withdrawal: Withdrawal, wallet: EthereumWallet): Promise<Hex | "already-claimed"> {
+      const w = withdrawalSchema.parse(withdrawal);
+      if (w.phase !== "claimable" || w.batchNumber === null || w.indexInBatch === null)
+        throw new Error("This withdrawal is not claimable yet");
+      // Recompute the leaf so a wrong amount, recipient or proof cannot be claimed.
+      const leaf = withdrawalId(
+        raw(w.asset, 20),
+        BigInt(w.amount),
+        w.nullifiers.map((n) => raw(n, 32)),
+        raw(w.recipient, 20),
+      );
+      if (leaf !== w.id.toLowerCase()) throw new Error("Withdrawal data does not match its ID");
+      const proof = proofSchema.parse(
+        await withdrawalsApi(
+          `/proof?batchNumber=${w.batchNumber}&indexInBatch=${w.indexInBatch}`,
+        ),
+      );
+      if (proof.leaf.toLowerCase() !== leaf || proof.index !== w.indexInBatch)
+        throw new Error("Claim proof does not match this withdrawal");
+      const cfg = await config();
+      await wallet.switchChain(cfg.chainId);
+      const provider = await wallet.getEthereumProvider();
+      const chain = cfg.isTestnet ? arbitrumSepolia : arbitrum;
+      const publicClient = createPublicClient({ chain, transport: custom(provider) });
+      const batch = BigInt(w.batchNumber);
+      const processed = () =>
+        publicClient.readContract({
+          address: cfg.vault as Address,
+          abi: vaultAbi,
+          functionName: "processedUnshields",
+          args: [batch, leaf],
+        });
+      if (await processed()) return "already-claimed";
+      const walletClient = createWalletClient({
+        account: wallet.address as Address,
+        chain,
+        transport: custom(provider),
+      });
+      const simulation = await publicClient.simulateContract({
+        account: wallet.address as Address,
+        address: cfg.vault as Address,
+        abi: vaultAbi,
+        functionName: "unshield",
+        args: [
+          {
+            asset: w.asset as Address,
+            amount: BigInt(w.amount),
+            nullifiers: w.nullifiers as Hex[],
+            l1_recipient_addr: w.recipient as Address,
+          },
+          batch,
+          BigInt(proof.index),
+          proof.proof as Hex[],
+        ],
+      });
+      const tx = await walletClient.writeContract(simulation.request);
+      if ((await publicClient.waitForTransactionReceipt({ hash: tx })).status !== "success")
+        throw new Error("Vault claim reverted");
+      return tx;
+    },
 
     /** Deposit from the user's EVM wallet. Wait for balance() to reflect spendable funds. */
     async deposit(amountUsdc: string, wallet: EthereumWallet): Promise<Hex> {

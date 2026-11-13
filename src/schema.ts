@@ -126,3 +126,40 @@ export const noteSchema = z.object({
 });
 
 export type Note = z.infer<typeof noteSchema>;
+
+// Withdrawals: the ShieldTX page signs the unshield; the open withdrawal routes report progress.
+
+const micro = z.string().regex(/^\d+$/);
+
+export const unshieldRequestSchema = z
+  .object({ amountUsdc: positive, recipient: address })
+  .strict();
+
+export const unshieldResultSchema = z.object({
+  id: hex32,
+  amount: micro,
+  recipient: address,
+  readToken: hex32,
+});
+
+export const readTokenSchema = z.object({ readToken: hex32 });
+
+export const withdrawalSchema = z.object({
+  id: hex32,
+  phase: z.enum(["enqueued", "proved", "claimable", "claimed"]),
+  asset: address,
+  amount: micro,
+  recipient: address,
+  nullifiers: z.array(hex32).min(1),
+  batchNumber: z.number().int().nonnegative().nullable(),
+  indexInBatch: z.number().int().nonnegative().nullable(),
+});
+
+export type Withdrawal = z.infer<typeof withdrawalSchema>;
+
+export const proofSchema = z.object({
+  leaf: hex32,
+  index: z.number().int().nonnegative(),
+  proof: z.array(hex32).max(64),
+  root: hex32,
+});

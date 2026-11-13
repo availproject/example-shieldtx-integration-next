@@ -1,5 +1,11 @@
 import { z } from "zod";
-import { acceptedSchema, orderSchema } from "./schema";
+import {
+  acceptedSchema,
+  orderSchema,
+  readTokenSchema,
+  unshieldRequestSchema,
+  unshieldResultSchema,
+} from "./schema";
 
 // Only these operations can cross the partner/ShieldTX window boundary.
 
@@ -7,6 +13,8 @@ export const operationSchema = z.discriminatedUnion("operation", [
   z.object({ operation: z.literal("connect") }).strict(),
   z.object({ operation: z.literal("balance"), accountId: z.uuid() }).strict(),
   z.object({ operation: z.literal("open"), accountId: z.uuid(), order: orderSchema }).strict(),
+  unshieldRequestSchema.extend({ operation: z.literal("unshield"), accountId: z.uuid() }).strict(),
+  z.object({ operation: z.literal("withdrawals"), accountId: z.uuid() }).strict(),
 ]);
 
 export type Operation = z.infer<typeof operationSchema>;
@@ -111,15 +119,21 @@ export function openShieldTxWindow(options: {
       }
       const complete = completeSchema.safeParse(event.data);
       if (!initialized || !complete.success || complete.data.requestId !== requestId) return;
+      const value = complete.data.result;
+      const operation = options.request.operation;
       const result =
-        options.request.operation === "connect"
-          ? z.null().safeParse(complete.data.result)
-          : options.request.operation === "balance"
+        operation === "connect"
+          ? z.null().safeParse(value)
+          : operation === "balance"
             ? z
                 .string()
                 .regex(/^\d+(?:\.\d+)?$/)
-                .safeParse(complete.data.result)
-            : acceptedSchema.safeParse(complete.data.result);
+                .safeParse(value)
+            : operation === "open"
+              ? acceptedSchema.safeParse(value)
+              : operation === "unshield"
+                ? unshieldResultSchema.safeParse(value)
+                : readTokenSchema.safeParse(value);
       if (!result.success) {
         finish(new Error("Invalid ShieldTX response"));
         return;

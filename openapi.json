@@ -41,6 +41,10 @@
     {
       "name": "Hosted signing",
       "description": "Low-level operations used by the hosted ShieldTX signing window."
+    },
+    {
+      "name": "Withdrawals",
+      "description": "Unauthenticated, partner-agnostic unshield relay and claim data. The sequencer verifies every signature and read token. Served under /api/withdrawals, not /api/shieldtx."
     }
   ],
   "security": [
@@ -1119,6 +1123,202 @@
             "ShieldTxAccountId": []
           }
         ]
+      }
+    },
+    "/unshield": {
+      "servers": [
+        {
+          "url": "{coordinatorOrigin}/api/withdrawals",
+          "description": "Partner-agnostic withdrawal routes on the coordinator origin.",
+          "variables": {
+            "coordinatorOrigin": {
+              "default": "https://coordinator.example.com",
+              "description": "Coordinator origin including scheme and optional port, without a trailing slash."
+            }
+          }
+        }
+      ],
+      "post": {
+        "operationId": "requestUnshield",
+        "summary": "Relay an owner-signed unshield",
+        "tags": [
+          "Withdrawals"
+        ],
+        "security": [],
+        "description": "Burns the input notes and queues an L1 withdrawal of `amount` to `l1_recipient`; any remainder stays shielded as a change note. Sent to the sequencer once and never retried. HTTP 502 UNSHIELD_UNCONFIRMED is ambiguous: check history before signing again (resending the same body is harmless). The withdrawal becomes claimable after the next proven batch, typically up to about two hours.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UnshieldRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnshieldAccepted"
+                },
+                "example": {
+                  "accepted": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "502": {
+            "$ref": "#/components/responses/BadGateway"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "default": {
+            "$ref": "#/components/responses/UnexpectedHttpError"
+          }
+        }
+      }
+    },
+    "/history": {
+      "servers": [
+        {
+          "url": "{coordinatorOrigin}/api/withdrawals",
+          "description": "Partner-agnostic withdrawal routes on the coordinator origin.",
+          "variables": {
+            "coordinatorOrigin": {
+              "default": "https://coordinator.example.com",
+              "description": "Coordinator origin including scheme and optional port, without a trailing slash."
+            }
+          }
+        }
+      ],
+      "post": {
+        "operationId": "getWithdrawalHistory",
+        "summary": "Page an owner's withdrawals",
+        "tags": [
+          "Withdrawals"
+        ],
+        "security": [],
+        "description": "Returns one page (up to 10) of the owner's unshields, oldest first; an empty page ends the list. Advance startingIndex by the number of records received. HTTP 409 READ_TOKEN_REJECTED means the read token expired and must be signed again. Rate-limited per owner.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WithdrawalHistoryRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WithdrawalHistory"
+                }
+              }
+            }
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "502": {
+            "$ref": "#/components/responses/BadGateway"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "default": {
+            "$ref": "#/components/responses/UnexpectedHttpError"
+          }
+        }
+      }
+    },
+    "/proof": {
+      "servers": [
+        {
+          "url": "{coordinatorOrigin}/api/withdrawals",
+          "description": "Partner-agnostic withdrawal routes on the coordinator origin.",
+          "variables": {
+            "coordinatorOrigin": {
+              "default": "https://coordinator.example.com",
+              "description": "Coordinator origin including scheme and optional port, without a trailing slash."
+            }
+          }
+        }
+      ],
+      "get": {
+        "operationId": "getWithdrawalProof",
+        "summary": "Get the Vault claim proof",
+        "tags": [
+          "Withdrawals"
+        ],
+        "security": [],
+        "description": "Inclusion proof for a claimable withdrawal. Check that `leaf` equals the withdrawal id, then call Vault.unshield((asset, amount, nullifiers, recipient), batchNumber, index, proof) from any Arbitrum wallet; funds go to the recipient.",
+        "parameters": [
+          {
+            "name": "batchNumber",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "indexInBatch",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WithdrawalProof"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "502": {
+            "$ref": "#/components/responses/BadGateway"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "default": {
+            "$ref": "#/components/responses/UnexpectedHttpError"
+          }
+        }
       }
     }
   },
@@ -2414,6 +2614,193 @@
           }
         ],
         "description": "The sequencer JSON-RPC response, including JSON-RPC errors under HTTP 200. A getLimits result is SequencerLimits; getChallenge and getAuthToken return Bytes32; getUnspentNotes returns Note[]."
+      },
+      "UnshieldRequest": {
+        "type": "object",
+        "description": "A SignedTransaction whose payload is Unshield, signed by the owner of every input note. The ShieldTX window builds and signs it.",
+        "properties": {
+          "input_commitments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Bytes32"
+            },
+            "minItems": 1,
+            "maxItems": 256
+          },
+          "payload": {
+            "type": "object",
+            "properties": {
+              "Unshield": {
+                "type": "object",
+                "properties": {
+                  "l1_recipient": {
+                    "$ref": "#/components/schemas/Bytes20"
+                  },
+                  "amount": {
+                    "$ref": "#/components/schemas/U256Quantity"
+                  }
+                },
+                "required": [
+                  "l1_recipient",
+                  "amount"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "Unshield"
+            ],
+            "additionalProperties": false
+          },
+          "signature": {
+            "$ref": "#/components/schemas/Signature"
+          }
+        },
+        "required": [
+          "input_commitments",
+          "payload",
+          "signature"
+        ],
+        "additionalProperties": false
+      },
+      "UnshieldAccepted": {
+        "type": "object",
+        "properties": {
+          "accepted": {
+            "const": true
+          }
+        },
+        "required": [
+          "accepted"
+        ],
+        "additionalProperties": false
+      },
+      "WithdrawalHistoryRequest": {
+        "type": "object",
+        "properties": {
+          "publicKey": {
+            "$ref": "#/components/schemas/Hex32"
+          },
+          "authToken": {
+            "$ref": "#/components/schemas/Hex32",
+            "description": "Sequencer read token from getChallenge/getAuthToken signed by publicKey."
+          },
+          "startingIndex": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100000,
+            "default": 0
+          }
+        },
+        "required": [
+          "publicKey",
+          "authToken"
+        ],
+        "additionalProperties": false
+      },
+      "Withdrawal": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Hex32",
+            "description": "Vault leaf hash of the unshield; stable identifier and the value Vault.processedUnshields is keyed by."
+          },
+          "phase": {
+            "type": "string",
+            "enum": [
+              "enqueued",
+              "proved",
+              "claimable",
+              "claimed"
+            ]
+          },
+          "asset": {
+            "$ref": "#/components/schemas/EvmAddress"
+          },
+          "amount": {
+            "type": "string",
+            "pattern": "^[0-9]+$",
+            "description": "Base units (micro-USDC for USDC)."
+          },
+          "recipient": {
+            "$ref": "#/components/schemas/EvmAddress"
+          },
+          "nullifiers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Hex32"
+            },
+            "minItems": 1
+          },
+          "batchNumber": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "indexInBatch": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0
+          }
+        },
+        "required": [
+          "id",
+          "phase",
+          "asset",
+          "amount",
+          "recipient",
+          "nullifiers",
+          "batchNumber",
+          "indexInBatch"
+        ],
+        "additionalProperties": false
+      },
+      "WithdrawalHistory": {
+        "type": "object",
+        "properties": {
+          "withdrawals": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Withdrawal"
+            }
+          }
+        },
+        "required": [
+          "withdrawals"
+        ],
+        "additionalProperties": false
+      },
+      "WithdrawalProof": {
+        "type": "object",
+        "properties": {
+          "leaf": {
+            "$ref": "#/components/schemas/Hex32"
+          },
+          "index": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "proof": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Hex32"
+            }
+          },
+          "root": {
+            "$ref": "#/components/schemas/Hex32"
+          }
+        },
+        "required": [
+          "leaf",
+          "index",
+          "proof",
+          "root"
+        ],
+        "additionalProperties": false
       }
     },
     "responses": {

@@ -46,6 +46,24 @@ export function noteCommitment(note: Note): number[] {
   );
 }
 
+/** The unshield's Vault leaf, as the coordinator reports it in withdrawal `id`. */
+export function withdrawalId(
+  asset: Uint8Array,
+  amount: bigint,
+  nullifiers: number[][] | Uint8Array[],
+  recipient: Uint8Array,
+): `0x${string}` {
+  return keccak256(
+    concat(
+      utf8("nightshade_unshield_signature_v1"),
+      asset,
+      uint(amount, 32),
+      ...nullifiers.map((n) => Uint8Array.from(n)),
+      recipient,
+    ),
+  );
+}
+
 export type Intent = {
   escrowed_amount: string;
   solver: { bytes: number[] };

@@ -6,7 +6,14 @@ import { z } from "zod";
 import { usePrivy } from "@privy-io/react-auth";
 import { createShieldTxClient } from "./client";
 import { raw } from "./crypto";
-import { configSchema, snapshotSchema, type Config, type Snapshot } from "./schema";
+import {
+  configSchema,
+  readTokenSchema,
+  snapshotSchema,
+  unshieldResultSchema,
+  type Config,
+  type Snapshot,
+} from "./schema";
 import { openShieldTxWindow, type Operation } from "./connection";
 
 const apiUrl = process.env.NEXT_PUBLIC_SHIELDTX_API_URL ?? "http://localhost:4102/api/shieldtx";
@@ -23,6 +30,10 @@ export function useShieldTx() {
     null,
   );
   const [error, setError] = useState("");
+  // Sequencer read token for withdrawal history. Memory only; reload asks again.
+  const [withdrawalAccess, setWithdrawalAccess] = useState<{ did: string; token: string } | null>(
+    null,
+  );
 
   // Ask Privy for the current token on each request so refreshes work automatically.
   async function api(path: string, body?: unknown) {
@@ -71,6 +82,7 @@ export function useShieldTx() {
     abort.current = new AbortController();
     setLoaded(null);
     setError("");
+    setWithdrawalAccess(null);
     if (!user) return;
     let cancelled = false;
     const poll = () =>
@@ -171,9 +183,34 @@ export function useShieldTx() {
     return z.string().parse(await hosted({ operation: "balance", accountId: binding.accountId }));
   }
 
+  /**
+   * Call from the Unshield button. The ShieldTX page signs the withdrawal and relays it;
+   * funds become claimable on Arbitrum after the next proven batch.
+   */
+  async function unshield(amountUsdc: string, recipient: string) {
+    const did = current.current.did;
+    if (!binding?.active || !did) throw new Error("Connect ShieldTX first");
+    const result = unshieldResultSchema.parse(
+      await hosted({ operation: "unshield", accountId: binding.accountId, amountUsdc, recipient }),
+    );
+    if (current.current.did === did) setWithdrawalAccess({ did, token: result.readToken });
+    return result;
+  }
+
+  /** Call from a user click: the ShieldTX page signs a read token for withdrawal history. */
+  async function authorizeWithdrawals() {
+    const did = current.current.did;
+    if (!binding?.active || !did) throw new Error("Connect ShieldTX first");
+    const { readToken } = readTokenSchema.parse(
+      await hosted({ operation: "withdrawals", accountId: binding.accountId }),
+    );
+    if (current.current.did === did) setWithdrawalAccess({ did, token: readToken });
+  }
+
   /** Revoke new backend activity, close pending popups, then reload connection status. */
   async function disconnect() {
     generation.current++;
+    setWithdrawalAccess(null);
     await api("/disconnect", {});
     generation.current++;
     abort.current?.abort();
@@ -188,6 +225,11 @@ export function useShieldTx() {
     connect,
     disconnect,
     renewReadSession,
+    unshield,
+    authorizeWithdrawals,
+    withdrawalToken: withdrawalAccess?.did === user?.id ? (withdrawalAccess?.token ?? null) : null,
+    /** Drop an expired withdrawal read token so the UI asks for access again. */
+    clearWithdrawalToken: () => setWithdrawalAccess(null),
     canConnect: !!active?.config.authAppOrigin,
     connected: !!binding?.active,
   };
