@@ -38,8 +38,11 @@ export const configSchema = z.object({
 
 export type Config = z.infer<typeof configSchema>;
 
+// Relay wallets are Solana, so their address is base58.
+const solanaAddress = z.string().regex(/^[1-9A-HJ-NP-Za-km-z]{32,44}$/);
+
 export const walletSchema = z.object({
-  address,
+  address: z.union([address, solanaAddress]),
   status: z.string(),
   phase: z.string().nullable(),
   relay: z.boolean(),

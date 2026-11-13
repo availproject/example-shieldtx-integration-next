@@ -285,8 +285,7 @@ export function App() {
                   !connected ||
                   !config?.executionEnabled ||
                   !ethereum ||
-                  busy ||
-                  !account?.wallets.length
+                  busy
                 }
                 onClick={() =>
                   void run(
