@@ -71,6 +71,13 @@ test("open builds, signs and submits the exact funded wallet binding; retry is b
   expect(ed25519.verify(Uint8Array.from(body.sequencerSignedIntent.signature.bytes), intentHash(body.sequencerSignedIntent.input_commitments, intent), root)).toBe(true);
   await expect(h.client.open({ ...order, leverage: 3 })).rejects.toThrow("different order");
 });
+test("a limit order sends limitPx; a market order omits it", async () => {
+  const market = harness(); await market.client.open(order);
+  expect(market.opens[0]).not.toHaveProperty("limitPx");
+  const limit = harness(); await limit.client.open({ ...order, limitPx: "3500" });
+  expect(limit.opens[0]).toMatchObject({ limitPx: "3500" });
+  await expect(harness().client.open({ ...order, limitPx: "-1" })).rejects.toThrow();
+});
 test("wrong signer, foreign notes, insufficient funding, and duplicate notes cannot open", async () => {
   for (const [options, message] of [
     [{ wrongSigner: true }, "signature"], [{ wrongOwner: true }, "Wrong-owner"],

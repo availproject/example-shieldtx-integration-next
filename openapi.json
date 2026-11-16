@@ -844,7 +844,7 @@
         "tags": [
           "Trading"
         ],
-        "description": "Closes the full position for a trade owned by the caller. An eligible funded trade that has not entered may instead be cancelled. Partial closes and client-supplied wallet, pair or size overrides are not accepted. nsOwnerAccount must equal the linked root. Reuse clientOrderId when retrying. HTTP 202 is acceptance; replay true indicates an already accepted close or cancellation. Close and return access remain available after disconnect for accepted trades.",
+        "description": "Closes the full position for a trade owned by the caller. An eligible funded trade that has not entered, or one whose limit entry is still resting, may instead be cancelled. Partial closes and client-supplied wallet, pair or size overrides are not accepted. nsOwnerAccount must equal the linked root. Reuse clientOrderId when retrying. HTTP 202 is acceptance; replay true indicates an already accepted close or cancellation. Close and return access remain available after disconnect for accepted trades.",
         "responses": {
           "401": {
             "$ref": "#/components/responses/Unauthorized"
@@ -2134,6 +2134,10 @@
           "sizeUsd": {
             "$ref": "#/components/schemas/PositiveDecimal",
             "description": "Position notional in USD, not margin. Must be covered by the signed funding amount and leverage."
+          },
+          "limitPx": {
+            "$ref": "#/components/schemas/PositiveDecimal",
+            "description": "Optional entry limit price. Present: the entry is a resting Gtc order at this price, opened once fully filled. Absent: a market entry."
           },
           "tpPx": {
             "$ref": "#/components/schemas/PositiveDecimal"

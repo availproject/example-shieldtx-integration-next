@@ -416,6 +416,14 @@ export function App() {
                     />
                   </label>
                   <label>
+                    Limit price · empty = market
+                    <input
+                      value={order.limitPx ?? ""}
+                      onChange={(e) => setOrder({ ...order, limitPx: e.target.value || undefined })}
+                      inputMode="decimal"
+                    />
+                  </label>
+                  <label>
                     Take-profit price
                     <input
                       value={order.tpPx}
@@ -503,7 +511,7 @@ export function App() {
                           {t.feeTotal} / {t.realizedPnl ?? "—"}
                         </td>
                         <td>
-                          {t.stage === "open" || t.stage === "funded" ? (
+                          {t.stage === "open" || t.stage === "funded" || t.stage === "entry_submitted" ? (
                             <button
                               disabled={busy}
                               onClick={() =>
@@ -513,7 +521,7 @@ export function App() {
                                 )
                               }
                             >
-                              {t.stage === "funded" ? "Cancel & reshield" : "Close fully"}
+                              {t.stage === "open" ? "Close fully" : "Cancel & reshield"}
                             </button>
                           ) : t.terminalStatus === "succeeded" &&
                             t.reshieldStage !== "relay_forwarded" ? (

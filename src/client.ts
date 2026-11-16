@@ -376,6 +376,7 @@ export function createShieldTxClient(options: Options) {
           direction: order.direction,
           leverage: order.leverage,
           sizeUsd: formatUnits(notional, 6),
+          ...(order.limitPx ? { limitPx: order.limitPx } : {}),
           tpPx: order.tpPx,
           slPx: order.slPx,
           nsOwnerAccount: hex(root),

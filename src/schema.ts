@@ -94,6 +94,8 @@ export const orderSchema = z
     direction: z.enum(["long", "short"]),
     marginUsdc: positive,
     leverage: z.number().int().min(1).max(100),
+    /** Entry limit price: a resting Gtc entry; omit for a market entry. */
+    limitPx: positive.optional(),
     tpPx: positive,
     slPx: positive,
   })
