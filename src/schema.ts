@@ -58,6 +58,7 @@ export const tradeSchema = z.object({
   pair: z.string(),
   direction: z.string(),
   leverage: z.number(),
+  isCross: z.boolean().optional(),
   sizeUsd: z.string(),
   entryPx: z.string().nullable(),
   feeTotal: z.string(),
@@ -96,12 +97,25 @@ export const orderSchema = z
     leverage: z.number().int().min(1).max(100),
     /** Entry limit price: a resting Gtc entry; omit for a market entry. */
     limitPx: positive.optional(),
+    /** Cross margin; omit (or false) for isolated. */
+    isCross: z.boolean().optional(),
     tpPx: positive,
     slPx: positive,
   })
   .strict();
 
 export type Order = z.infer<typeof orderSchema>;
+
+// An open position's TP/SL move or cancel, or its new leverage (margin mode is kept).
+// A cancelled TP or SL cannot be placed again.
+const tpsl = z.enum(["tp", "sl"]);
+export const positionActionSchema = z.discriminatedUnion("action", [
+  z.object({ action: z.literal("setTpsl"), tpsl, triggerPx: positive }).strict(),
+  z.object({ action: z.literal("cancelTpsl"), tpsl }).strict(),
+  z.object({ action: z.literal("updateLeverage"), leverage: z.number().int().min(1).max(100) }).strict(),
+]);
+
+export type PositionAction = z.infer<typeof positionActionSchema>;
 
 // Setup accepts a fixed root, batch ID and count; policies stay on the backend.
 

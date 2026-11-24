@@ -416,6 +416,16 @@ export function App() {
                     />
                   </label>
                   <label>
+                    Margin
+                    <select
+                      value={order.isCross ? "cross" : "isolated"}
+                      onChange={(e) => setOrder({ ...order, isCross: e.target.value === "cross" || undefined })}
+                    >
+                      <option value="isolated">Isolated</option>
+                      <option value="cross">Cross</option>
+                    </select>
+                  </label>
+                  <label>
                     Limit price · empty = market
                     <input
                       value={order.limitPx ?? ""}
@@ -497,7 +507,7 @@ export function App() {
                         <td>
                           {t.pair} · {t.direction}
                           <small>
-                            {t.sizeUsd} USD · {t.leverage}× · {short(t.tradeId)}
+                            {t.sizeUsd} USD · {t.leverage}× {t.isCross ? "cross" : "isolated"} · {short(t.tradeId)}
                           </small>
                         </td>
                         <td>
@@ -512,6 +522,7 @@ export function App() {
                         </td>
                         <td>
                           {t.stage === "open" || t.stage === "funded" || t.stage === "entry_submitted" ? (
+                            <>
                             <button
                               disabled={busy}
                               onClick={() =>
@@ -523,6 +534,52 @@ export function App() {
                             >
                               {t.stage === "open" ? "Close fully" : "Cancel & reshield"}
                             </button>
+                            {t.stage === "open" && (
+                              <>
+                                {(["tp", "sl"] as const).map((tpsl) => (
+                                  <span key={tpsl}>
+                                    <button
+                                      disabled={busy}
+                                      onClick={() => {
+                                        const triggerPx = prompt(`New ${tpsl.toUpperCase()} trigger price`)?.trim();
+                                        if (triggerPx)
+                                          void run(
+                                            () => client!.positionAction(t.tradeId, { action: "setTpsl", tpsl, triggerPx }),
+                                            `${tpsl.toUpperCase()} moved`,
+                                          );
+                                      }}
+                                    >
+                                      Move {tpsl.toUpperCase()}
+                                    </button>
+                                    <button
+                                      disabled={busy}
+                                      onClick={() =>
+                                        void run(
+                                          () => client!.positionAction(t.tradeId, { action: "cancelTpsl", tpsl }),
+                                          `${tpsl.toUpperCase()} cancelled`,
+                                        )
+                                      }
+                                    >
+                                      Cancel {tpsl.toUpperCase()}
+                                    </button>
+                                  </span>
+                                ))}
+                                <button
+                                  disabled={busy}
+                                  onClick={() => {
+                                    const leverage = Number(prompt("New leverage", String(t.leverage)));
+                                    if (leverage)
+                                      void run(
+                                        () => client!.positionAction(t.tradeId, { action: "updateLeverage", leverage }),
+                                        `Leverage set to ${leverage}×`,
+                                      );
+                                  }}
+                                >
+                                  Leverage
+                                </button>
+                              </>
+                            )}
+                            </>
                           ) : t.terminalStatus === "succeeded" &&
                             t.reshieldStage !== "relay_forwarded" ? (
                             <button

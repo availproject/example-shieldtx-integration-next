@@ -18,6 +18,7 @@ import {
   configSchema,
   noteSchema,
   orderSchema,
+  positionActionSchema,
   positive,
   proofSchema,
   snapshotSchema,
@@ -25,6 +26,7 @@ import {
   withdrawalSchema,
   type Config,
   type Order,
+  type PositionAction,
   type Withdrawal,
 } from "./schema";
 import { hex, intentHash, noteCommitment, raw, withdrawalId, type Intent } from "./crypto";
@@ -377,6 +379,7 @@ export function createShieldTxClient(options: Options) {
           leverage: order.leverage,
           sizeUsd: formatUnits(notional, 6),
           ...(order.limitPx ? { limitPx: order.limitPx } : {}),
+          ...(order.isCross ? { isCross: true } : {}),
           tpPx: order.tpPx,
           slPx: order.slPx,
           nsOwnerAccount: hex(root),
@@ -400,6 +403,10 @@ export function createShieldTxClient(options: Options) {
     /** Close the full position, or cancel an eligible funded trade; reuse the close request ID. */
     close: (tradeId: string, clientOrderId: string = crypto.randomUUID()) =>
       api("/close", { tradeId, clientOrderId, nsOwnerAccount: hex(root) }),
+
+    /** Move or cancel an open position's TP/SL, or set its leverage; resolves once Hyperliquid accepts. */
+    positionAction: async (tradeId: string, action: PositionAction) =>
+      api("/action", { tradeId: z.uuid().parse(tradeId), ...positionActionSchema.parse(action) }),
 
     /** Request or resume the return, then watch reshieldStage and the spendable balance. */
     reshield: (tradeId: string) => api("/reshield", { tradeId }),

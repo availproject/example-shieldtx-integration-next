@@ -16,7 +16,7 @@ const note = { owner: { Key: { bytes: Array.from(root) } }, amount: "10000000", 
 const order: Order = { clientOrderId: "10000000-0000-4000-8000-000000000001", pair: "ETH-USD", direction: "long", marginUsdc: "5", leverage: 2, tpPx: "4200", slPx: "3000" };
 const tradeId = "10000000-0000-4000-8000-000000000002";
 function harness(options: { loseResponse?: boolean; wrongSigner?: boolean; wrongOwner?: boolean; amount?: string; duplicate?: boolean; disabled?: boolean; expiredRead?: boolean; accountId?: string; acceptedOrder?: boolean } = {}) {
-  const opens: unknown[] = []; const methods: string[] = []; let signatures = 0;
+  const opens: unknown[] = []; const actions: unknown[] = []; const methods: string[] = []; let signatures = 0;
   const client = createShieldTxClient({
     accountId:options.accountId,
     nsAddress: bs58.encode(root), getAccessToken: async () => "test-token",
@@ -45,10 +45,11 @@ function harness(options: { loseResponse?: boolean; wrongSigner?: boolean; wrong
         if (options.loseResponse && opens.length === 1) throw new Error("Simulated response loss after submission");
         return Response.json({ tradeId, replay: opens.length > 1 }, { status: 202 });
       }
+      if (path === "/action") { actions.push(body); return Response.json({ tradeId }); }
       throw new Error("Unexpected route: " + path);
     },
   });
-  return { client, opens, methods, signatures: () => signatures };
+  return { client, opens, actions, methods, signatures: () => signatures };
 }
 test("browser note/intent bytes match Rust canonical fixtures", () => {
   expect(hex(noteCommitment(noteSchema.parse(note)))).toBe("0xa9687805d24487a1ba91d425d83f0233ed2629e091177e7039420e14fb4c46d2");
@@ -70,6 +71,27 @@ test("open builds, signs and submits the exact funded wallet binding; retry is b
   const intent = body.sequencerSignedIntent.payload.CreateIntent as Intent;
   expect(ed25519.verify(Uint8Array.from(body.sequencerSignedIntent.signature.bytes), intentHash(body.sequencerSignedIntent.input_commitments, intent), root)).toBe(true);
   await expect(h.client.open({ ...order, leverage: 3 })).rejects.toThrow("different order");
+});
+test("cross margin sends isCross; isolated omits it", async () => {
+  const isolated = harness(); await isolated.client.open(order);
+  expect(isolated.opens[0]).not.toHaveProperty("isCross");
+  const cross = harness(); await cross.client.open({ ...order, isCross: true });
+  expect(cross.opens[0]).toMatchObject({ isCross: true });
+});
+test("position actions send the trade and exactly the action's fields", async () => {
+  const h = harness();
+  await h.client.positionAction(tradeId, { action: "setTpsl", tpsl: "tp", triggerPx: "4300" });
+  await h.client.positionAction(tradeId, { action: "cancelTpsl", tpsl: "sl" });
+  await h.client.positionAction(tradeId, { action: "updateLeverage", leverage: 5 });
+  expect(h.actions).toEqual([
+    { tradeId, action: "setTpsl", tpsl: "tp", triggerPx: "4300" },
+    { tradeId, action: "cancelTpsl", tpsl: "sl" },
+    { tradeId, action: "updateLeverage", leverage: 5 },
+  ]);
+  await expect(h.client.positionAction(tradeId, { action: "setTpsl", tpsl: "tp", triggerPx: "-1" })).rejects.toThrow();
+  await expect(h.client.positionAction(tradeId, { action: "updateLeverage", leverage: 0 })).rejects.toThrow();
+  await expect(h.client.positionAction("not-a-uuid", { action: "cancelTpsl", tpsl: "tp" })).rejects.toThrow();
+  expect(h.actions).toHaveLength(3);
 });
 test("a limit order sends limitPx; a market order omits it", async () => {
   const market = harness(); await market.client.open(order);

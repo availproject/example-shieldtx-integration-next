@@ -908,6 +908,85 @@
         }
       }
     },
+    "/action": {
+      "post": {
+        "operationId": "positionAction",
+        "summary": "Move or cancel an open position's TP/SL, or set its leverage",
+        "tags": [
+          "Trading"
+        ],
+        "description": "Applies one action to an open trade owned by the caller and answers once Hyperliquid accepts it. 409 TRADE_NOT_OPEN: the trade has no open position. 409 TPSL_NOT_RESTING: the TP or SL already fired or was cancelled. 409 HL_REJECTED: Hyperliquid refused the action; the message carries its reason. Retrying is safe: moving to the same price or setting the same leverage again has the same result.",
+        "responses": {
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/Internal"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "413": {
+            "$ref": "#/components/responses/PayloadTooLarge"
+          },
+          "default": {
+            "$ref": "#/components/responses/UnexpectedHttpError"
+          },
+          "200": {
+            "description": "Hyperliquid accepted the action.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "tradeId"
+                  ],
+                  "properties": {
+                    "tradeId": {
+                      "$ref": "#/components/schemas/NonzeroUuid"
+                    }
+                  }
+                },
+                "example": {
+                  "tradeId": "10000000-0000-4000-8000-000000000002"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PositionActionRequest"
+              },
+              "example": {
+                "tradeId": "10000000-0000-4000-8000-000000000002",
+                "action": "setTpsl",
+                "tpsl": "tp",
+                "triggerPx": "4300"
+              }
+            }
+          }
+        }
+      }
+    },
     "/reshield": {
       "post": {
         "operationId": "reshieldTrade",
@@ -1726,6 +1805,10 @@
           "leverage": {
             "type": "integer"
           },
+          "isCross": {
+            "type": "boolean",
+            "description": "Cross margin; false is isolated."
+          },
           "entryPx": {
             "anyOf": [
               {
@@ -2138,6 +2221,10 @@
           "limitPx": {
             "$ref": "#/components/schemas/PositiveDecimal",
             "description": "Optional entry limit price. Present: the entry is a resting Gtc order at this price, opened once fully filled. Absent: a market entry."
+          },
+          "isCross": {
+            "type": "boolean",
+            "description": "Optional. true: cross margin (the wallet's whole balance backs the position). Absent or false: isolated. Rejected for isolated-only markets."
           },
           "tpPx": {
             "$ref": "#/components/schemas/PositiveDecimal"
@@ -2805,6 +2892,89 @@
           "root"
         ],
         "additionalProperties": false
+      },
+      "PositionActionRequest": {
+        "description": "One action on an open position, selected by action. TP and SL keep their order identity: setTpsl moves the resting order, and a cancelled TP or SL cannot be placed again.",
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "tradeId",
+              "action",
+              "tpsl",
+              "triggerPx"
+            ],
+            "properties": {
+              "tradeId": {
+                "$ref": "#/components/schemas/NonzeroUuid"
+              },
+              "action": {
+                "const": "setTpsl"
+              },
+              "tpsl": {
+                "type": "string",
+                "enum": [
+                  "tp",
+                  "sl"
+                ]
+              },
+              "triggerPx": {
+                "$ref": "#/components/schemas/PositiveDecimal",
+                "description": "New trigger price; the order keeps its size."
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "tradeId",
+              "action",
+              "tpsl"
+            ],
+            "properties": {
+              "tradeId": {
+                "$ref": "#/components/schemas/NonzeroUuid"
+              },
+              "action": {
+                "const": "cancelTpsl"
+              },
+              "tpsl": {
+                "type": "string",
+                "enum": [
+                  "tp",
+                  "sl"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "tradeId",
+              "action",
+              "leverage"
+            ],
+            "properties": {
+              "tradeId": {
+                "$ref": "#/components/schemas/NonzeroUuid"
+              },
+              "action": {
+                "const": "updateLeverage"
+              },
+              "leverage": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "New leverage; the trade's margin mode is kept."
+              }
+            }
+          }
+        ],
+        "discriminator": {
+          "propertyName": "action"
+        }
       }
     },
     "responses": {
