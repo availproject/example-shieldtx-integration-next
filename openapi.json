@@ -911,7 +911,7 @@
     "/action": {
       "post": {
         "operationId": "positionAction",
-        "summary": "Move or cancel an open position's TP/SL (one or both), or set its leverage",
+        "summary": "Move or cancel an open position's TP/SL (one or both), set its leverage, or send a noop",
         "tags": [
           "Trading"
         ],
@@ -3012,6 +3012,23 @@
                 "type": "integer",
                 "minimum": 1,
                 "description": "New leverage; the trade's margin mode is kept."
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "description": "Signs and submits a Hyperliquid noop: it changes nothing on the position and only uses up a nonce.",
+            "required": [
+              "tradeId",
+              "action"
+            ],
+            "properties": {
+              "tradeId": {
+                "$ref": "#/components/schemas/NonzeroUuid"
+              },
+              "action": {
+                "const": "noop"
               }
             }
           }

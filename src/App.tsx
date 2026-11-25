@@ -568,16 +568,18 @@ export function App() {
                                 >
                                   Leverage
                                 </button>
+                                <button
+                                  disabled={busy}
+                                  onClick={() => void run(() => client!.positionAction(t.tradeId, { action: "noop" }), "Noop sent")}
+                                >
+                                  Noop
+                                </button>
                                 {edit?.tradeId === t.tradeId && (
                                   <form
                                     onSubmit={(e) => {
                                       e.preventDefault();
                                       const { field, value, sl = "" } = edit;
                                       setEdit(null);
-                                      // A blank price leaves that leg out of the batch.
-                                      const legs = (["tp", "sl"] as const)
-                                        .map((tpsl) => ({ tpsl, triggerPx: (tpsl === "tp" ? value : sl).trim() }))
-                                        .filter((leg) => leg.triggerPx);
                                       void run(
                                         () =>
                                           client!.positionAction(
@@ -585,7 +587,14 @@ export function App() {
                                             field === "leverage"
                                               ? { action: "updateLeverage", leverage: Number(value) }
                                               : field === "tpsl"
-                                                ? { action: "batchSetTpsl", legs }
+                                                ? {
+                                                    action: "batchSetTpsl",
+                                                    // A blank price leaves that leg out of the batch.
+                                                    legs: [
+                                                      { tpsl: "tp" as const, triggerPx: value.trim() },
+                                                      { tpsl: "sl" as const, triggerPx: sl.trim() },
+                                                    ].filter((leg) => leg.triggerPx),
+                                                  }
                                                 : { action: "setTpsl", tpsl: field, triggerPx: value.trim() },
                                           ),
                                         field === "leverage" ? `Leverage set to ${value}×` : field === "tpsl" ? "TP/SL moved" : `${field.toUpperCase()} moved`,

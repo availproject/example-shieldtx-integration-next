@@ -107,7 +107,7 @@ export const orderSchema = z
 export type Order = z.infer<typeof orderSchema>;
 
 // An open position's TP/SL move (one leg, or both in one batchSetTpsl) or cancel,
-// or its new leverage (margin mode is kept).
+// its new leverage (margin mode is kept), or a Hyperliquid noop that only uses up a nonce.
 // A cancelled TP or SL cannot be placed again.
 const tpsl = z.enum(["tp", "sl"]);
 export const positionActionSchema = z.discriminatedUnion("action", [
@@ -119,6 +119,7 @@ export const positionActionSchema = z.discriminatedUnion("action", [
   }).strict(),
   z.object({ action: z.literal("cancelTpsl"), tpsl }).strict(),
   z.object({ action: z.literal("updateLeverage"), leverage: z.number().int().min(1).max(100) }).strict(),
+  z.object({ action: z.literal("noop") }).strict(),
 ]);
 
 export type PositionAction = z.infer<typeof positionActionSchema>;
