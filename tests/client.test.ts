@@ -82,17 +82,21 @@ test("cross margin sends isCross; isolated omits it", async () => {
 test("position actions send the trade and exactly the action's fields", async () => {
   const h = harness();
   await h.client.positionAction(tradeId, { action: "setTpsl", tpsl: "tp", triggerPx: "4300" });
+  await h.client.positionAction(tradeId, { action: "batchSetTpsl", legs: [{ tpsl: "tp", triggerPx: "4300" }, { tpsl: "sl", triggerPx: "3000" }] });
   await h.client.positionAction(tradeId, { action: "cancelTpsl", tpsl: "sl" });
   await h.client.positionAction(tradeId, { action: "updateLeverage", leverage: 5 });
   expect(h.actions).toEqual([
     { tradeId, action: "setTpsl", tpsl: "tp", triggerPx: "4300" },
+    { tradeId, action: "batchSetTpsl", legs: [{ tpsl: "tp", triggerPx: "4300" }, { tpsl: "sl", triggerPx: "3000" }] },
     { tradeId, action: "cancelTpsl", tpsl: "sl" },
     { tradeId, action: "updateLeverage", leverage: 5 },
   ]);
   await expect(h.client.positionAction(tradeId, { action: "setTpsl", tpsl: "tp", triggerPx: "-1" })).rejects.toThrow();
   await expect(h.client.positionAction(tradeId, { action: "updateLeverage", leverage: 0 })).rejects.toThrow();
+  await expect(h.client.positionAction(tradeId, { action: "batchSetTpsl", legs: [] })).rejects.toThrow();
+  await expect(h.client.positionAction(tradeId, { action: "batchSetTpsl", legs: [{ tpsl: "tp", triggerPx: "1" }, { tpsl: "tp", triggerPx: "2" }] })).rejects.toThrow();
   await expect(h.client.positionAction("not-a-uuid", { action: "cancelTpsl", tpsl: "tp" })).rejects.toThrow();
-  expect(h.actions).toHaveLength(3);
+  expect(h.actions).toHaveLength(4);
 });
 test("a limit order sends limitPx; a market order omits it", async () => {
   const market = harness(); await market.client.open(order);

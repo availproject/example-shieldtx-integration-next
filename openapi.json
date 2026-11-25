@@ -911,7 +911,7 @@
     "/action": {
       "post": {
         "operationId": "positionAction",
-        "summary": "Move or cancel an open position's TP/SL, or set its leverage",
+        "summary": "Move or cancel an open position's TP/SL (one or both), or set its leverage",
         "tags": [
           "Trading"
         ],
@@ -2922,6 +2922,50 @@
               "triggerPx": {
                 "$ref": "#/components/schemas/PositiveDecimal",
                 "description": "New trigger price; the order keeps its size."
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "tradeId",
+              "action",
+              "legs"
+            ],
+            "properties": {
+              "tradeId": {
+                "$ref": "#/components/schemas/NonzeroUuid"
+              },
+              "action": {
+                "const": "batchSetTpsl"
+              },
+              "legs": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 2,
+                "description": "Moves for tp and/or sl (each at most once), sent as one signed Hyperliquid batchModify. Each move is applied independently: on HL_REJECTED the other leg may still have moved.",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "tpsl",
+                    "triggerPx"
+                  ],
+                  "properties": {
+                    "tpsl": {
+                      "type": "string",
+                      "enum": [
+                        "tp",
+                        "sl"
+                      ]
+                    },
+                    "triggerPx": {
+                      "$ref": "#/components/schemas/PositiveDecimal",
+                      "description": "New trigger price; the order keeps its size."
+                    }
+                  }
+                }
               }
             }
           },

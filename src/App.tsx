@@ -41,6 +41,8 @@ export function App() {
   const [balanceError, setBalanceError] = useState("");
   const [renewalRequired, setRenewalRequired] = useState(false);
   const [busy, setBusy] = useState(false);
+  // The open trade's TP/SL or leverage being edited inline; "tpsl" moves both, `value` is the TP and `sl` the SL.
+  const [edit, setEdit] = useState<{ tradeId: string; field: "tp" | "sl" | "tpsl" | "leverage"; value: string; sl?: string } | null>(null);
   const [message, setMessage] = useState("");
   const [pollError, setPollError] = useState("");
   const [deposit, setDeposit] = useState("20");
@@ -540,14 +542,7 @@ export function App() {
                                   <span key={tpsl}>
                                     <button
                                       disabled={busy}
-                                      onClick={() => {
-                                        const triggerPx = prompt(`New ${tpsl.toUpperCase()} trigger price`)?.trim();
-                                        if (triggerPx)
-                                          void run(
-                                            () => client!.positionAction(t.tradeId, { action: "setTpsl", tpsl, triggerPx }),
-                                            `${tpsl.toUpperCase()} moved`,
-                                          );
-                                      }}
+                                      onClick={() => setEdit({ tradeId: t.tradeId, field: tpsl, value: "" })}
                                     >
                                       Move {tpsl.toUpperCase()}
                                     </button>
@@ -564,19 +559,62 @@ export function App() {
                                     </button>
                                   </span>
                                 ))}
+                                <button disabled={busy} onClick={() => setEdit({ tradeId: t.tradeId, field: "tpsl", value: "", sl: "" })}>
+                                  Move TP+SL
+                                </button>
                                 <button
                                   disabled={busy}
-                                  onClick={() => {
-                                    const leverage = Number(prompt("New leverage", String(t.leverage)));
-                                    if (leverage)
-                                      void run(
-                                        () => client!.positionAction(t.tradeId, { action: "updateLeverage", leverage }),
-                                        `Leverage set to ${leverage}×`,
-                                      );
-                                  }}
+                                  onClick={() => setEdit({ tradeId: t.tradeId, field: "leverage", value: String(t.leverage) })}
                                 >
                                   Leverage
                                 </button>
+                                {edit?.tradeId === t.tradeId && (
+                                  <form
+                                    onSubmit={(e) => {
+                                      e.preventDefault();
+                                      const { field, value, sl = "" } = edit;
+                                      setEdit(null);
+                                      // A blank price leaves that leg out of the batch.
+                                      const legs = (["tp", "sl"] as const)
+                                        .map((tpsl) => ({ tpsl, triggerPx: (tpsl === "tp" ? value : sl).trim() }))
+                                        .filter((leg) => leg.triggerPx);
+                                      void run(
+                                        () =>
+                                          client!.positionAction(
+                                            t.tradeId,
+                                            field === "leverage"
+                                              ? { action: "updateLeverage", leverage: Number(value) }
+                                              : field === "tpsl"
+                                                ? { action: "batchSetTpsl", legs }
+                                                : { action: "setTpsl", tpsl: field, triggerPx: value.trim() },
+                                          ),
+                                        field === "leverage" ? `Leverage set to ${value}×` : field === "tpsl" ? "TP/SL moved" : `${field.toUpperCase()} moved`,
+                                      );
+                                    }}
+                                  >
+                                    <input
+                                      autoFocus
+                                      inputMode="decimal"
+                                      placeholder={edit.field === "leverage" ? "Leverage" : `New ${edit.field === "sl" ? "SL" : "TP"} trigger price`}
+                                      value={edit.value}
+                                      onChange={(e) => setEdit({ ...edit, value: e.target.value })}
+                                    />
+                                    {edit.field === "tpsl" && (
+                                      <input
+                                        inputMode="decimal"
+                                        placeholder="New SL trigger price"
+                                        value={edit.sl}
+                                        onChange={(e) => setEdit({ ...edit, sl: e.target.value })}
+                                      />
+                                    )}
+                                    <button type="submit" disabled={busy || !(edit.value.trim() || edit.sl?.trim())}>
+                                      Apply
+                                    </button>
+                                    <button type="button" onClick={() => setEdit(null)}>
+                                      Cancel
+                                    </button>
+                                  </form>
+                                )}
                               </>
                             )}
                             </>

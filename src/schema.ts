@@ -106,11 +106,17 @@ export const orderSchema = z
 
 export type Order = z.infer<typeof orderSchema>;
 
-// An open position's TP/SL move or cancel, or its new leverage (margin mode is kept).
+// An open position's TP/SL move (one leg, or both in one batchSetTpsl) or cancel,
+// or its new leverage (margin mode is kept).
 // A cancelled TP or SL cannot be placed again.
 const tpsl = z.enum(["tp", "sl"]);
 export const positionActionSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("setTpsl"), tpsl, triggerPx: positive }).strict(),
+  z.object({
+    action: z.literal("batchSetTpsl"),
+    legs: z.array(z.object({ tpsl, triggerPx: positive }).strict()).min(1).max(2)
+      .refine((legs) => new Set(legs.map((leg) => leg.tpsl)).size === legs.length, "each of tp and sl at most once"),
+  }).strict(),
   z.object({ action: z.literal("cancelTpsl"), tpsl }).strict(),
   z.object({ action: z.literal("updateLeverage"), leverage: z.number().int().min(1).max(100) }).strict(),
 ]);
