@@ -15,7 +15,7 @@ const config = {
 const note = { owner: { Key: { bytes: Array.from(root) } }, amount: "10000000", asset: new Array(20).fill(2), nonce: new Array(32).fill(4) };
 const order: Order = { clientOrderId: "10000000-0000-4000-8000-000000000001", pair: "ETH-USD", direction: "long", marginUsdc: "5", leverage: 2, tpPx: "4200", slPx: "3000" };
 const tradeId = "10000000-0000-4000-8000-000000000002";
-function harness(options: { loseResponse?: boolean; wrongSigner?: boolean; wrongOwner?: boolean; amount?: string; duplicate?: boolean; disabled?: boolean; expiredRead?: boolean; accountId?: string; acceptedOrder?: boolean } = {}) {
+function harness(options: { loseResponse?: boolean; wrongSigner?: boolean; wrongOwner?: boolean; amount?: string; duplicate?: boolean; disabled?: boolean; expiredRead?: boolean; accountId?: string; acceptedOrder?: boolean; refuseOpen?: boolean } = {}) {
   const opens: unknown[] = []; const actions: unknown[] = []; const methods: string[] = []; let signatures = 0;
   const client = createShieldTxClient({
     accountId:options.accountId,
@@ -43,6 +43,7 @@ function harness(options: { loseResponse?: boolean; wrongSigner?: boolean; wrong
       if (path === "/open") {
         opens.push(body);
         if (options.loseResponse && opens.length === 1) throw new Error("Simulated response loss after submission");
+        if (options.refuseOpen) return Response.json({ error: { code: "SETUP_INCOMPLETE", message: "finish wallet/policy setup first" } }, { status: 409 });
         return Response.json({ tradeId, replay: opens.length > 1 }, { status: 202 });
       }
       if (path === "/action") { actions.push(body); return Response.json({ tradeId }); }
@@ -126,6 +127,20 @@ test("a reopened native popup reconciles its retained order ID without another s
     values.set(key,order.clientOrderId);
     await first.client.open(order);
     expect(first.opens[1]).toEqual(first.opens[0]);expect(values.has(key)).toBe(false);
+  } finally {
+    if(original)Object.defineProperty(globalThis,"localStorage",original);else Reflect.deleteProperty(globalThis,"localStorage");
+  }
+});
+test("a refused open clears its pending order so the next open can be signed", async () => {
+  const original=Object.getOwnPropertyDescriptor(globalThis,"localStorage");
+  const values=new Map<string,string>();
+  Object.defineProperty(globalThis,"localStorage",{configurable:true,value:{getItem:(key:string)=>values.get(key)??null,setItem:(key:string,value:string)=>values.set(key,value),removeItem:(key:string)=>values.delete(key)}});
+  try {
+    const accountId=crypto.randomUUID();
+    await expect(harness({accountId,refuseOpen:true}).client.open(order)).rejects.toThrow("finish wallet/policy setup first");
+    expect(values.size).toBe(0);
+    const next={...order,clientOrderId:crypto.randomUUID()};
+    expect(await harness({accountId}).client.open(next)).toEqual({tradeId,replay:false});
   } finally {
     if(original)Object.defineProperty(globalThis,"localStorage",original);else Reflect.deleteProperty(globalThis,"localStorage");
   }

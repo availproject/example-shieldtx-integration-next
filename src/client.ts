@@ -55,6 +55,7 @@ export class ShieldTxApiError extends Error {
   constructor(
     message: string,
     readonly code?: string,
+    readonly status?: number,
   ) {
     super(message);
     this.name = "ShieldTxApiError";
@@ -137,6 +138,7 @@ export function createShieldTxClient(options: Options) {
       throw new ShieldTxApiError(
         error.success ? error.data.error.message : `ShieldTX HTTP ${response.status}`,
         error.success ? error.data.error.code : undefined,
+        response.status,
       );
     }
     return response.json();
@@ -278,12 +280,26 @@ export function createShieldTxClient(options: Options) {
       opening = true;
       try {
         const storageKey = options.accountId ? "shieldtx-pending:" + options.accountId : null;
+        const submit = async (body: unknown) => {
+          try {
+            return acceptedSchema.parse(await api("/open", body));
+          } catch (error) {
+            // A 4xx refuses the open before any trade or funding exists, so
+            // there is nothing to reconcile; a lost or 5xx response may still land.
+            if (error instanceof ShieldTxApiError && error.status !== undefined && error.status < 500) {
+              submissions.delete(order.clientOrderId);
+              if (storageKey && localStorage.getItem(storageKey) === order.clientOrderId)
+                localStorage.removeItem(storageKey);
+            }
+            throw error;
+          }
+        };
         // A retry resends the saved signed body instead of creating another funding intent.
         const previous = submissions.get(order.clientOrderId);
         if (previous) {
           if (previous.order !== JSON.stringify(order))
             throw new Error("Use a new clientOrderId for a different order");
-          const accepted = acceptedSchema.parse(await api("/open", previous.body));
+          const accepted = await submit(previous.body);
           if (storageKey && localStorage.getItem(storageKey) === order.clientOrderId)
             localStorage.removeItem(storageKey);
           return accepted;
@@ -392,7 +408,7 @@ export function createShieldTxClient(options: Options) {
         };
         submissions.set(order.clientOrderId, { order: JSON.stringify(order), body });
         if (storageKey) localStorage.setItem(storageKey, order.clientOrderId);
-        const accepted = acceptedSchema.parse(await api("/open", body));
+        const accepted = await submit(body);
         if (storageKey) localStorage.removeItem(storageKey);
         return accepted;
       } finally {
